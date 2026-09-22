@@ -18,8 +18,8 @@ stock v0.8.293 kernel, portrait 480 × 640 at 190 dpi.
   cycles reconnect correctly with unique FIFO leases.
 - Camera wheel directions were read back as front `0`, rear `180`, and privacy
   `90` after returning home.
-- Android's vibrator service records Rabbit Phone's haptic requests. The user's
-  tactile experience still requires a hands-on check.
+- Android's vibrator service records Rabbit Phone's haptic requests. The user
+  also confirmed that scrolling vibrates with USB unplugged.
 - Phone, Messages, Music and Settings launch into separate tasks and return to
   the default Rabbit Phone home; no call or message was sent.
 - A real reboot completed with Android reporting `sys.boot_completed=1`; the
@@ -29,6 +29,8 @@ stock v0.8.293 kernel, portrait 480 × 640 at 190 dpi.
   and waking it restored controls.
 - Terminating the helper caused init to restart it, and the foreground app
   automatically reconnected to the replacement process.
+- With USB unplugged, the user confirmed wheel navigation, side-button
+  selection, and hold/release local voice-note recording all work.
 
 Per-device receipts and screenshots are retained in ignored `evidence/`. Public
 source does not include those logs, identifiers, signing keys, or media.
