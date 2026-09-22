@@ -19,3 +19,12 @@
 - Check exact saved startup-file hashes before updating/restoring the helper.
   Return the system mount to read-only even when deployment fails.
 - No project SCAR category is mapped here. Do not import unrelated project rules.
+
+## Publishing identity
+
+- Publish this repository only as `burningportra` to `burningportra/rabbit-phone`.
+  Verify the authenticated account before creating repositories or pushing.
+- Use `burningportra <198369936+burningportra@users.noreply.github.com>` for commits.
+  Do not inherit an employer account or signing key from global Git settings.
+- Signing is disabled locally until a personal signing key is explicitly chosen
+  and verified. Do not turn global work-key signing back on for this repository.
