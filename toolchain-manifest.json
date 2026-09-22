@@ -1,0 +1,25 @@
+{
+  "platforms;android-36": {
+    "url": "https://dl.google.com/android/repository/platform-36_r02.zip",
+    "size": 65878410,
+    "checksum": "2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576",
+    "host": null
+  },
+  "build-tools;36.0.0": {
+    "url": "https://dl.google.com/android/repository/build-tools_r36_macosx.zip",
+    "size": 79121749,
+    "checksum": "199ae0047ee61e842f8ee0c6d3918e44fb9a1f83",
+    "host": "macosx"
+  },
+  "jdk": {
+    "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.20.1_1.tar.gz",
+    "checksum": "196d13ba5f10414bef7f6a05a9b3f00edacb18ebacef2b99485db9e2ee18f0e8",
+    "size": 185851019
+  },
+  "ndk;27.2.12479018": {
+    "url": "https://dl.google.com/android/repository/android-ndk-r27c-darwin.zip",
+    "size": 836128272,
+    "checksum": "0217c10ffbec496bb9fbfbb3c6fc2477c6b77297",
+    "host": "macosx"
+  }
+}

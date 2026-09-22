@@ -1,0 +1,9 @@
+/build/
+/.local/
+/.toolchain
+/evidence/
+*.apk
+*.keystore
+*.jks
+__pycache__/
+*.py[cod]

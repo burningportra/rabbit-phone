@@ -1,0 +1,11 @@
+# Rabbit Phone: private foreground input bridge, no network or permanent wakelock.
+service rabbit-phone-controls /system/bin/sh -c "exec /system/xbin/su 0 /data/local/rabbit-phone/rabbit-phone-hardware /data/user/0/com.kevtrinh.rabbitphone/files"
+    class late_start
+    user root
+    group root input
+    seclabel u:r:shell:s0
+    disabled
+    restart_period 3
+
+on property:sys.boot_completed=1
+    start rabbit-phone-controls
