@@ -103,7 +103,8 @@ available. The app reconnects while foreground after the helper returns.
 
 ![Rabbit Phone home screen](docs/home.png)
 
-See [validation](docs/validation.md), [hardware protocol](hardware/README.md), and
+See [validation](docs/validation.md), [verified Android base](docs/base-system.md),
+[hardware protocol](hardware/README.md), and
 [development rules](AGENTS.md). Hardware-driver declarations alone are not
 physical proof, and SIM calls/texts have not been carrier-tested.
 
