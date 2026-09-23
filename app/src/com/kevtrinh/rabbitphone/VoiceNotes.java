@@ -265,6 +265,18 @@ public final class VoiceNotes {
         return player != null && playingFile != null && playingFile.equals(note);
     }
 
+    public long playbackPositionMillis() {
+        if (player == null) return 0L;
+        try { return Math.max(0, player.getCurrentPosition()); }
+        catch (RuntimeException unavailable) { return 0L; }
+    }
+
+    public long playbackDurationMillis() {
+        if (player == null) return 0L;
+        try { return Math.max(0, player.getDuration()); }
+        catch (RuntimeException unavailable) { return 0L; }
+    }
+
     public void release() {
         if (!requireMainThread()) return;
         cancelInternal(false);

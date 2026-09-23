@@ -22,8 +22,9 @@ for the owner's device.
   There are no automatic calls or sent messages.
 - A built-in camera supports front/rear rotation, explicit photo capture, and
   privacy parking. Photos go to `Pictures/Rabbit Phone`.
-- Holding the side button opens a custom voice recorder with an elapsed timer,
-  live microphone meter and Rabbit typography. Release saves a private voice
+- Holding the side button opens a reel-to-reel recorder inspired by Rabbit's
+  Magic Recorder: red rotating reels, a real microphone level meter, elapsed
+  timer and Power Grotesk type. Release saves a private voice
   note; the saved screen offers playback and the note library. Focus loss cancels
   an unfinished take, and the 60-second limit saves it automatically. The app has
   no Internet permission.
@@ -58,6 +59,15 @@ Saved notes and the library include **−/+ media-volume controls** and a curren
 level. Select them with the wheel and side button, or tap them. A zero or muted
 level says **Media volume off**; Play respects that setting. Adjusting the volume
 stays inside the recorder, so it does not open a system panel or stop playback.
+Android persists the selected level for each output device, including zero.
+The app does not restore a startup default or keep a competing volume cache, so
+reopening the recorder respects changes made elsewhere in Android as well.
+
+The reels follow real recording/playback time and stop in the saved state.
+Playback has its own position indicator; the recording meter uses actual
+microphone samples. Reduced-motion settings keep the reels still while the
+timer, level meter and playback position remain usable. Wheel selection stays
+instant; touch presses and save feedback use short, interruptible transitions.
 
 Normal Android wake/lock behavior remains available. Standalone Android apps
 retain their own controls. The five-press action refreshes this local interface;
@@ -159,6 +169,8 @@ available. The app reconnects while foreground after the helper returns.
 
 ![Rabbit Phone home screen](docs/home.png)
 
+![Reel-to-reel recording screen](docs/recorder.png)
+
 See [validation](docs/validation.md), [theme and typography](docs/theme.md),
 [verified Android base](docs/base-system.md), [hardware protocol](hardware/README.md), and
 [development rules](AGENTS.md). Hardware-driver declarations alone are not
@@ -199,6 +211,20 @@ statistics. The playback check deliberately plays an existing note on the R1,
 checks mute indication, touch and hardware volume controls, speaker routing and
 teardown, and restores the starting volume. It preserves all notes and writes
 only local, ignored receipts/screenshots under `evidence/playback/`.
+
+The volume persistence check uses the visible −/+ controls, restarts the app and
+optionally reboots Android. It restores the initial level only if no external
+volume change intervened, and does not play or record audio:
+
+```sh
+python3 scripts/verify_volume_persistence.py --change-volume --reboot
+python3 scripts/verify_volume_persistence.py --change-volume --zero --reboot
+```
+
+Visual reference: [Rabbit's Magic Recorder](https://www.rabbit.tech/support/article/rabbit-r1-voice-recorder).
+The reels and controls are native Canvas drawings; Rabbit's reference image is
+not bundled. The local recorder retains this project's hold/release gestures
+and does not add cloud transcripts, summaries, photos or bookmarks.
 
 - [Rabbit's documented controls](https://www.rabbit.tech/support/article/use-rabbit-r1)
 - [CipherOS R1](https://cipheros.org.in/devices/r1)

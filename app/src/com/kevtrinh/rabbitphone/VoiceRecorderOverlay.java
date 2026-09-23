@@ -1,11 +1,17 @@
 package com.kevtrinh.rabbitphone;
 
 import android.Manifest;
+import android.animation.ValueAnimator;
+import android.animation.TimeInterpolator;
 import android.app.Activity;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorFilter;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PixelFormat;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.os.Handler;
@@ -16,6 +22,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.animation.PathInterpolator;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -38,12 +45,14 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     }
 
     private static final int MICROPHONE_PERMISSION_REQUEST = 4071;
-    private static final int BG = Color.rgb(10, 10, 9);
+    private static final int BG = Color.BLACK;
     private static final int WHITE = Color.rgb(245, 239, 225);
     private static final int MUTED = Color.rgb(161, 154, 140);
     private static final int ORANGE = Color.rgb(255, 90, 31);
     private static final int CARD = Color.rgb(27, 27, 24);
     private static final int DARK_INK = Color.rgb(22, 18, 14);
+    private static final int RECORD_RED = Color.rgb(255, 22, 69);
+    private static final TimeInterpolator EASE_OUT = new PathInterpolator(.23f, 1f, .32f, 1f);
 
     private final Activity activity;
     private final Host host;
@@ -56,9 +65,20 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         @Override public void run() {
             if (!notes.isRecording() || root == null) return;
             long elapsed = notes.elapsedMillis();
-            if (timer != null) timer.setText(formatDuration(elapsed));
-            if (waveform != null) waveform.push(notes.maxAmplitude());
+            setTimer(elapsed);
+            if (deck != null) deck.setState(TapeDeckView.Mode.RECORDING, elapsed,
+                    VoiceNotes.MAX_DURATION_MS, notes.maxAmplitude());
             main.postDelayed(this, 50L);
+        }
+    };
+    private final Runnable playbackTick = new Runnable() {
+        @Override public void run() {
+            if (root == null || !showingSaved || !notes.isPlaying(savedFile)) return;
+            long position = notes.playbackPositionMillis();
+            long duration = notes.playbackDurationMillis();
+            setTimer(position);
+            if (deck != null) deck.setState(TapeDeckView.Mode.PLAYING, position, duration, 0);
+            main.postDelayed(this, 100L);
         }
     };
     private final Runnable volumeTick = new Runnable() {
@@ -74,7 +94,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     private TextView timer;
     private TextView volumeLabel;
     private String volumeError;
-    private WaveformView waveform;
+    private TapeDeckView deck;
     private ScrollView actionScroll;
     private File savedFile;
     private long savedDuration;
@@ -102,15 +122,16 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         attach();
         beginPage();
         if (page == null) return;
-        page.addView(text("Voice recorder", 32, WHITE, Typeface.NORMAL),
-                new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView hint = text("Hold the side button to record", 29, WHITE, Typeface.NORMAL);
-        hint.setGravity(Gravity.CENTER_VERTICAL);
-        page.addView(hint, new LinearLayout.LayoutParams(-1, 0, 1f));
-        addAction("Notes", false, new Runnable() {
+        addDeckHeader("ready", MUTED);
+        addTimer(0, MUTED);
+        addDeck(TapeDeckView.Mode.READY, 0, 0);
+        addHint("Hold the side button to record", MUTED);
+        addSpacer();
+        LinearLayout transport = addTransportRow();
+        addTransport(transport, "Notes", Glyph.NOTES, ORANGE, new Runnable() {
             @Override public void run() { showLibrary(); }
         });
-        addAction("Done", false, new Runnable() {
+        addTransport(transport, "Done", Glyph.DONE, ORANGE, new Runnable() {
             @Override public void run() { closeFromUser(); }
         });
         applySelection(false);
@@ -179,6 +200,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     /** Used for pause, focus loss, helper disconnect, lock, and destruction. */
     public void abortAndDismiss() {
         main.removeCallbacks(meterTick);
+        main.removeCallbacks(playbackTick);
         main.removeCallbacks(volumeTick);
         notes.cancel();
         notes.stopPlayback();
@@ -202,6 +224,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             main.post(meterTick);
         } else {
             main.removeCallbacks(meterTick);
+            stopDeck();
             clearOwnedScreenFlag();
         }
     }
@@ -212,6 +235,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             savedDuration = result.durationMillis;
             attach();
             renderSaved(result.message);
+            root.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         } else if (result.status == VoiceNotes.Status.CANCELED) {
             if (isVisible()) renderMessage(result.message);
         } else {
@@ -253,6 +277,9 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     private void beginPage() {
         if (root == null) return;
+        main.removeCallbacks(playbackTick);
+        stopDeck();
+        for (View view : actionViews) view.animate().cancel();
         showingSaved = false;
         main.removeCallbacks(volumeTick);
         volumeLabel = null;
@@ -262,11 +289,11 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         actions.clear();
         selectedAction = 0;
         timer = null;
-        waveform = null;
+        deck = null;
         actionScroll = null;
         page = new LinearLayout(activity);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(18), dp(14), dp(18), dp(14));
+        page.setPadding(dp(20), dp(26), dp(20), dp(14));
         root.addView(page, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
@@ -274,33 +301,22 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     private void renderRecording() {
         beginPage();
         if (page == null) return;
-        TextView title = text("Voice recorder", 24, WHITE, Typeface.NORMAL);
-        page.addView(title, new LinearLayout.LayoutParams(-1, dp(36)));
-
-        timer = text("00:00", 62, WHITE, Typeface.NORMAL);
-        timer.setGravity(Gravity.CENTER);
-        timer.setFontFeatureSettings("tnum");
-        timer.setLetterSpacing(0.03f);
-        page.addView(timer, new LinearLayout.LayoutParams(-1, dp(86)));
-
-        waveform = new WaveformView(activity);
-        page.addView(waveform, new LinearLayout.LayoutParams(-1, dp(86)));
-
-        TextView hint = text("Release button to save", 17, ORANGE, Typeface.NORMAL);
-        hint.setGravity(Gravity.CENTER);
-        page.addView(hint, new LinearLayout.LayoutParams(-1, dp(44)));
-
-        View spacer = new View(activity);
-        page.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1f));
-        addAction("Cancel", false, new Runnable() {
+        addDeckHeader("recording", RECORD_RED);
+        addTimer(0, RECORD_RED);
+        addDeck(TapeDeckView.Mode.READY, 0, VoiceNotes.MAX_DURATION_MS);
+        addHint("Release button to save", RECORD_RED);
+        addSpacer();
+        LinearLayout transport = addTransportRow();
+        addTransport(transport, "Cancel", Glyph.CANCEL, RECORD_RED, new Runnable() {
             @Override public void run() {
                 notes.cancel();
                 closeFromUser();
             }
         });
-        addAction("Stop & save", true, new Runnable() {
+        addTransport(transport, "Stop & save", Glyph.STOP, RECORD_RED, new Runnable() {
             @Override public void run() { notes.stop(); }
         });
+        selectedAction = 1;
         applySelection(false);
     }
 
@@ -309,37 +325,37 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         int previousSelection = selectedAction;
         beginPage();
         if (page == null) return;
-        TextView eyebrow = text("SAVED", 13, ORANGE, Typeface.NORMAL);
-        eyebrow.setLetterSpacing(0.12f);
-        page.addView(eyebrow, new LinearLayout.LayoutParams(-1, dp(28)));
-        TextView heading = text("Voice note saved", 34, WHITE, Typeface.NORMAL);
-        page.addView(heading, new LinearLayout.LayoutParams(-1, dp(50)));
-        TextView duration = text(formatDuration(savedDuration), 56, WHITE, Typeface.NORMAL);
-        duration.setFontFeatureSettings("tnum");
-        duration.setGravity(Gravity.CENTER_VERTICAL);
-        page.addView(duration, new LinearLayout.LayoutParams(-1, dp(74)));
-        TextView detail = text(message, 15, MUTED, Typeface.NORMAL);
-        page.addView(detail, new LinearLayout.LayoutParams(-1, dp(44)));
-        View spacer = new View(activity);
-        page.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1f));
-
         boolean playing = notes.isPlaying(savedFile);
-        addAction(playing ? "Stop" : "Play", true, new Runnable() {
+        addDeckHeader(playing ? "playing" : "saved", playing ? ORANGE : MUTED);
+        addTimer(playing ? notes.playbackPositionMillis() : savedDuration, WHITE);
+        addDeck(playing ? TapeDeckView.Mode.PLAYING : TapeDeckView.Mode.SAVED,
+                playing ? notes.playbackPositionMillis() : savedDuration,
+                playing ? notes.playbackDurationMillis() : savedDuration);
+        addHint(playing ? "Playing · " + formatDuration(notes.playbackDurationMillis()) : message, MUTED);
+        addSpacer();
+        LinearLayout transport = addTransportRow();
+        addTransport(transport, playing ? "Stop" : "Play", playing ? Glyph.STOP : Glyph.PLAY,
+                ORANGE, new Runnable() {
             @Override public void run() {
                 if (notes.isPlaying(savedFile)) notes.stopPlayback();
                 else notes.play(savedFile);
             }
         });
-        addAction("Notes", false, new Runnable() {
+        addTransport(transport, "Notes", Glyph.NOTES, ORANGE, new Runnable() {
             @Override public void run() { showLibrary(); }
         });
-        addAction("Done", false, new Runnable() {
+        addTransport(transport, "Done", Glyph.DONE, ORANGE, new Runnable() {
             @Override public void run() { closeFromUser(); }
         });
         addVolumeControls();
         showingSaved = true;
         if (preserveSelection) selectedAction = Math.max(0, Math.min(actions.size() - 1, previousSelection));
         applySelection(false);
+        if (playing) main.post(playbackTick);
+        else if (!preserveSelection && ValueAnimator.areAnimatorsEnabled()) {
+            deck.setAlpha(.65f);
+            deck.animate().alpha(1f).setDuration(180).setInterpolator(EASE_OUT).start();
+        }
     }
 
     private void renderMessage(String message) {
@@ -350,8 +366,6 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         TextView body = text(message, 29, WHITE, Typeface.NORMAL);
         body.setGravity(Gravity.CENTER_VERTICAL);
         page.addView(body, new LinearLayout.LayoutParams(-1, 0, 1f));
-        TextView detail = text("No recording was saved.", 15, MUTED, Typeface.NORMAL);
-        page.addView(detail, new LinearLayout.LayoutParams(-1, dp(54)));
         addAction("Notes", false, new Runnable() {
             @Override public void run() { showLibrary(); }
         });
@@ -387,7 +401,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             rows.addView(empty, new LinearLayout.LayoutParams(-1, dp(160)));
         } else {
             final SimpleDateFormat format = new SimpleDateFormat(
-                    "EEE, MMM d  ·  h:mm a", Locale.getDefault());
+                    "EEE, MMM d  ·  h:mm:ss a", Locale.getDefault());
             for (final File file : files) {
                 addLibraryAction(rows,
                         format.format(new Date(file.lastModified())),
@@ -410,6 +424,66 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             selectedAction = Math.max(0, Math.min(actions.size() - 1, previousSelection));
         }
         applySelection(false);
+    }
+
+    private void addDeckHeader(String state, int color) {
+        LinearLayout row = new LinearLayout(activity);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(text("recorder", 22, WHITE, Typeface.NORMAL),
+                new LinearLayout.LayoutParams(0, -1, 1f));
+        TextView status = text(state, 13, color, Typeface.NORMAL);
+        status.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        row.addView(status, new LinearLayout.LayoutParams(-2, -1));
+        page.addView(row, new LinearLayout.LayoutParams(-1, dp(28)));
+    }
+
+    private void addTimer(long millis, int color) {
+        timer = text(formatDuration(millis), 57, color, Typeface.NORMAL);
+        timer.setGravity(Gravity.CENTER_VERTICAL);
+        timer.setFontFeatureSettings("tnum");
+        page.addView(timer, new LinearLayout.LayoutParams(-1, dp(72)));
+    }
+
+    private void setTimer(long millis) {
+        if (timer == null) return;
+        String value = formatDuration(millis);
+        if (!value.contentEquals(timer.getText())) timer.setText(value);
+    }
+
+    private void addDeck(TapeDeckView.Mode mode, long position, long duration) {
+        deck = new TapeDeckView(activity);
+        deck.setState(mode, position, duration, 0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(200));
+        params.topMargin = dp(6);
+        params.bottomMargin = dp(8);
+        page.addView(deck, params);
+    }
+
+    private void addHint(String message, int color) {
+        TextView hint = text(message, 15, color, Typeface.NORMAL);
+        hint.setGravity(Gravity.CENTER);
+        page.addView(hint, new LinearLayout.LayoutParams(-1, dp(28)));
+    }
+
+    private void addSpacer() {
+        page.addView(new View(activity), new LinearLayout.LayoutParams(-1, 0, 1f));
+    }
+
+    private LinearLayout addTransportRow() {
+        LinearLayout row = new LinearLayout(activity);
+        row.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(64));
+        params.topMargin = dp(10);
+        page.addView(row, params);
+        return row;
+    }
+
+    private void addTransport(LinearLayout row, String label, Glyph glyph, int accent, Runnable action) {
+        TransportButton button = new TransportButton(label, glyph, accent);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1f);
+        if (row.getChildCount() > 0) params.leftMargin = dp(8);
+        row.addView(button, params);
+        registerAction(button, action);
     }
 
     /** In-window controls: opening Android's volume panel would interrupt playback. */
@@ -447,7 +521,8 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
                     if (audio == null || audio.isVolumeFixed()) {
                         volumeError = "Use output volume controls";
                     } else {
-                        // Explicit user action only. Play never raises or unmutes volume.
+                        // AudioService persists this per output device, including zero.
+                        // Never restore an app default or overwrite it on Play/entry.
                         audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0);
                     }
                 } catch (SecurityException unavailable) {
@@ -525,6 +600,17 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
                 if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                     selectedAction = index;
                     applySelection(false);
+                    if (view instanceof TransportButton && ValueAnimator.areAnimatorsEnabled()) {
+                        view.animate().cancel();
+                        view.setScaleX(.97f);
+                        view.setScaleY(.97f);
+                    }
+                } else if (event.getActionMasked() == MotionEvent.ACTION_UP
+                        || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                    if (view instanceof TransportButton) {
+                        view.animate().scaleX(1f).scaleY(1f).setDuration(120)
+                                .setInterpolator(EASE_OUT).start();
+                    }
                 }
                 return false;
             }
@@ -538,7 +624,9 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         for (int i = 0; i < actionViews.size(); i++) {
             View view = actionViews.get(i);
             boolean selected = i == selectedAction;
-            if (view instanceof Button) {
+            if (view instanceof TransportButton) {
+                ((TransportButton) view).showSelection(selected);
+            } else if (view instanceof Button) {
                 view.setBackground(shape(selected ? ORANGE : CARD, 14));
                 ((Button) view).setTextColor(selected ? DARK_INK : WHITE);
             } else if (view instanceof LinearLayout) {
@@ -571,6 +659,9 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     private void dismiss() {
         main.removeCallbacks(meterTick);
+        main.removeCallbacks(playbackTick);
+        stopDeck();
+        for (View view : actionViews) view.animate().cancel();
         main.removeCallbacks(volumeTick);
         notes.stopPlayback();
         clearOwnedScreenFlag();
@@ -586,7 +677,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         timer = null;
         volumeLabel = null;
         volumeError = null;
-        waveform = null;
+        deck = null;
         actionScroll = null;
         savedFile = null;
         savedDuration = 0L;
@@ -597,6 +688,12 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             ownsKeepScreenOn = false;
         }
+    }
+
+    private void stopDeck() {
+        if (deck == null) return;
+        deck.stopAnimation();
+        deck.animate().cancel();
     }
 
     private TextView text(String value, int sp, int color, int style) {
@@ -618,47 +715,101 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     private String formatDuration(long millis) {
         long totalSeconds = Math.max(0L, millis) / 1000L;
-        return String.format(Locale.US, "%02d:%02d", totalSeconds / 60L, totalSeconds % 60L);
+        return String.format(Locale.US, "%d:%02d:%02d", totalSeconds / 3600L,
+                (totalSeconds / 60L) % 60L, totalSeconds % 60L);
     }
 
     private int dp(int value) {
         return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
 
-    private static final class WaveformView extends View {
-        private static final int BAR_COUNT = 29;
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final float[] levels = new float[BAR_COUNT];
+    private enum Glyph { PLAY, STOP, NOTES, DONE, CANCEL }
 
-        WaveformView(Activity activity) {
+    private final class TransportButton extends Button {
+        private final GlyphDrawable icon;
+        private final int accent;
+
+        TransportButton(String label, Glyph glyph, int accent) {
             super(activity);
-            paint.setColor(ORANGE);
-            setContentDescription("Live microphone level");
-            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            this.accent = accent;
+            icon = new GlyphDrawable(glyph);
+            icon.setBounds(0, 0, dp(22), dp(22));
+            setText(label);
+            setAllCaps(false);
+            setTextSize(13);
+            setTypeface(RabbitTypography.regular(activity));
+            setIncludeFontPadding(false);
+            setMinWidth(0);
+            setMinimumWidth(0);
+            setMinHeight(0);
+            setMinimumHeight(0);
+            setGravity(Gravity.CENTER);
+            setPadding(dp(6), dp(7), dp(6), dp(7));
+            setCompoundDrawables(null, icon, null, null);
+            setCompoundDrawablePadding(dp(4));
+            showSelection(false);
         }
 
-        void push(int amplitude) {
-            System.arraycopy(levels, 1, levels, 0, BAR_COUNT - 1);
-            float normalized = Math.min(1f, Math.max(0f, amplitude / 32767f));
-            levels[BAR_COUNT - 1] = (float) Math.sqrt(normalized);
-            invalidate();
+        void showSelection(boolean selected) {
+            int color = selected ? accent : WHITE;
+            int fill = selected ? Color.argb(24, Color.red(accent), Color.green(accent), Color.blue(accent)) : BG;
+            GradientDrawable background = shape(fill, 12);
+            if (selected) background.setStroke(dp(1), accent);
+            setBackground(background);
+            setTextColor(selected ? accent : MUTED);
+            icon.setColor(color);
+        }
+    }
+
+    private static final class GlyphDrawable extends Drawable {
+        private final Glyph glyph;
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+
+        GlyphDrawable(Glyph glyph) {
+            this.glyph = glyph;
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            paint.setStrokeWidth(2f);
         }
 
-        @Override protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            float gap = getResources().getDisplayMetrics().density * 3f;
-            float width = Math.max(2f,
-                    (getWidth() - gap * (BAR_COUNT - 1)) / BAR_COUNT);
-            float center = getHeight() / 2f;
-            float maxHeight = getHeight() * 0.82f;
-            float minHeight = getResources().getDisplayMetrics().density * 2f;
-            for (int i = 0; i < BAR_COUNT; i++) {
-                float height = Math.max(minHeight, levels[i] * maxHeight);
-                float left = i * (width + gap);
-                canvas.drawRoundRect(left, center - height / 2f,
-                        left + width, center + height / 2f,
-                        width / 2f, width / 2f, paint);
+        void setColor(int color) { paint.setColor(color); invalidateSelf(); }
+
+        @Override public void draw(Canvas canvas) {
+            int checkpoint = canvas.save();
+            canvas.translate(getBounds().left, getBounds().top);
+            canvas.scale(getBounds().width() / 24f, getBounds().height() / 24f);
+            paint.setStyle(Paint.Style.STROKE);
+            path.reset();
+            switch (glyph) {
+                case PLAY:
+                    paint.setStyle(Paint.Style.FILL);
+                    path.moveTo(7, 4); path.lineTo(20, 12); path.lineTo(7, 20); path.close();
+                    canvas.drawPath(path, paint);
+                    break;
+                case STOP:
+                    paint.setStyle(Paint.Style.FILL);
+                    canvas.drawRoundRect(5, 5, 19, 19, 2, 2, paint);
+                    break;
+                case NOTES:
+                    canvas.drawLine(5, 6, 19, 6, paint);
+                    canvas.drawLine(5, 12, 19, 12, paint);
+                    canvas.drawLine(5, 18, 15, 18, paint);
+                    break;
+                case DONE:
+                    path.moveTo(4, 12); path.lineTo(10, 18); path.lineTo(20, 6);
+                    canvas.drawPath(path, paint);
+                    break;
+                case CANCEL:
+                    canvas.drawLine(6, 6, 18, 18, paint);
+                    canvas.drawLine(18, 6, 6, 18, paint);
+                    break;
             }
+            canvas.restoreToCount(checkpoint);
         }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); invalidateSelf(); }
+        @Override public void setColorFilter(ColorFilter filter) { paint.setColorFilter(filter); invalidateSelf(); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }
 }

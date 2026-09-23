@@ -5,9 +5,9 @@ stock v0.8.293 kernel, portrait 480 × 640 at 190 dpi.
 
 ## Evidence established
 
-- Native APK build and v2/v3 signature verification pass. The current 0.4.2
-  build is 119,187 bytes with SHA-256
-  `44885b200d026a1f0cf920fefb07f78c7c350efe1446b32bae8e7136e29d66cb`.
+- Native APK build and v2/v3 signature verification pass. The current 0.5.0
+  build is 131,475 bytes with SHA-256
+  `df5e52da140398d046caff6f422fa8239309a0eb1624d29c2e46589cc5dc3689`.
 - Fifteen gesture-state cases pass, including duplicate edges, hold vs click,
   single/double/five/eight presses, cancellation, delayed holds and delayed
   separated clicks. Tests do not invoke actual shutdown or record media.
@@ -100,7 +100,7 @@ and its `--from-app` variant. Receipts and screenshots stay in ignored
 `evidence/recorder/assistant-standby/` and `assistant-app/`. PIN-authenticated
 unlock and microphone/speaker quality have not been physically certified.
 
-## Playback volume evidence
+## Playback volume fix (0.4.2)
 
 - The silent-playback report was traced to `STREAM_MUSIC` on the speaker at
   0/15. Android showed the app's media players starting but muted by stream and
@@ -124,6 +124,40 @@ unlock and microphone/speaker quality have not been physically certified.
 Reproducible checks are `scripts/probe_note_signal.py --analyze-notes` and
 `scripts/verify_playback.py --play-note`. Receipts, audio-service snapshots and
 UI captures remain local under ignored `evidence/playback/`.
+
+## Reel-to-reel craft and preference persistence (0.5.0)
+
+- The recorder was rebuilt around the official Magic Recorder reference: paired
+  red outline reels, a large Power Grotesk elapsed counter, microphone level
+  ticks, playback position and compact native transport icons. All artwork is
+  drawn locally; the stock reference bitmap is not included in the app or repo.
+- Separate on-device recording and playback frames show both reel positions
+  changing. Playback reads actual MediaPlayer position/duration; recording uses
+  real elapsed time and microphone amplitude. The saved reel phase was identical
+  before and after playback. No random waveform or synthetic level is displayed.
+- With Android animations disabled, the microphone still recorded and the reels
+  remained static across timed captures. The original animation setting was
+  restored. Inactive/hidden/detached views stop their frame callbacks; requests
+  are capped at 30 per second and extrapolation is bounded to 100 ms.
+- Independent review covered overlay timers, media completion, lifecycle cleanup,
+  focus/selection retention and reduced motion. Actual 480 × 640 captures show
+  the saved-page transport and volume controls fully visible.
+- A UI-selected speaker volume of 12/15 survived app force-stop/reopen and an
+  actual reboot, with `volume_music_speaker=12` and matching recorder text. A
+  separate UI-selected zero level survived the same checks and displayed
+  **Media volume off** after reboot. Each completed test restored its current
+  baseline; the user's newer 10/15 choice was preserved after the zero test.
+- Volume persistence uses Android's existing per-output-device setting. No
+  competing app preference or startup default was added. The verifier waits for
+  the finite boot-theme job before reopening the UI and declines to overwrite
+  external volume changes or disturb an active recording.
+- All deliberate microphone test takes were deleted; existing note hashes were
+  preserved. Receipts and intermediate images are in ignored `evidence/craft/`.
+
+Run `scripts/verify_volume_persistence.py --change-volume --reboot` and its
+`--zero` variant for preference checks. `scripts/capture_recorder_demo.py
+--record-test --from-standby` creates a short screen-video demonstration after
+the recorder is foreground, exports no audio track, and removes its test note.
 
 ## Theme evidence established
 
