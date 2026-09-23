@@ -52,7 +52,7 @@ public final class CameraActivity extends Activity implements SurfaceHolder.Call
     private Button flip;
     private HardwareButtonClient hardware;
     private ButtonGestures gestures;
-    private VoiceNotes voiceNotes;
+    private VoiceRecorderOverlay recorderOverlay;
     private Camera camera;
     private int rearId = -1;
     private int frontId = -1;
@@ -76,28 +76,36 @@ public final class CameraActivity extends Activity implements SurfaceHolder.Call
             int restored = state.getInt("camera", selectedId);
             if (restored == rearId || restored == frontId) selectedId = restored;
         }
-        voiceNotes = new VoiceNotes(this, new VoiceNotes.Listener() {
-            @Override public void onRecordingChanged(boolean active) {
+        recorderOverlay = new VoiceRecorderOverlay(this, new VoiceRecorderOverlay.Host() {
+            @Override public void onRecorderActiveChanged(boolean active) {
                 recording = active;
                 updateButtons();
-                status.setText(active ? "Recording voice note · release to save" : facingLabel());
+                if (!active && foreground) status.setText(facingLabel());
             }
-            @Override public void onMessage(String message) { status.setText(message); }
+            @Override public void onRecorderMessage(String message) { status.setText(message); }
         });
         gestures = new ButtonGestures(new ButtonGestures.Scheduler() {
             @Override public long now() { return android.os.SystemClock.uptimeMillis(); }
             @Override public void postDelayed(Runnable action, long delay) { main.postDelayed(action, delay); }
             @Override public void remove(Runnable action) { main.removeCallbacks(action); }
         }, new ButtonGestures.Actions() {
-            @Override public void onSingle() { takePhoto(); }
-            @Override public void onDouble() { finish(); }
-            @Override public void onHoldStart() {
-                if (foreground) voiceNotes.start();
+            @Override public void onSingle() {
+                if (!recorderOverlay.handleSingle()) takePhoto();
             }
-            @Override public void onHoldEnd() { voiceNotes.stop(); }
-            @Override public void onRefresh() { refreshPreview(); }
+            @Override public void onDouble() {
+                recorderOverlay.dismissForDouble();
+                finish();
+            }
+            @Override public void onHoldStart() {
+                if (foreground) recorderOverlay.beginHold();
+            }
+            @Override public void onHoldEnd() { recorderOverlay.finishHold(); }
+            @Override public void onRefresh() {
+                recorderOverlay.abortAndDismiss();
+                refreshPreview();
+            }
             @Override public void onShutdown() {
-                voiceNotes.cancel();
+                recorderOverlay.abortAndDismiss();
                 if (!hardware.send(HardwareButtonClient.Command.SHUTDOWN))
                     status.setText("Shutdown is unavailable; use Android's power menu");
             }
@@ -113,7 +121,7 @@ public final class CameraActivity extends Activity implements SurfaceHolder.Call
             @Override public void onUp(long time) { if (foreground) gestures.up(time); }
             @Override public void onDisconnected() {
                 gestures.cancel();
-                voiceNotes.cancel();
+                recorderOverlay.abortAndDismiss();
                 if (foreground) status.setText("Use the on-screen camera controls");
                 main.postDelayed(new Runnable() {
                     @Override public void run() {
@@ -242,7 +250,7 @@ public final class CameraActivity extends Activity implements SurfaceHolder.Call
 
     private void stopForeground() {
         if (gestures != null) gestures.cancel();
-        if (voiceNotes != null) voiceNotes.cancel();
+        if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
         if (hardware != null) {
             hardware.send(HardwareButtonClient.Command.MOTOR_PRIVACY);
             hardware.stop();
@@ -255,7 +263,7 @@ public final class CameraActivity extends Activity implements SurfaceHolder.Call
     }
 
     @Override protected void onDestroy() {
-        if (voiceNotes != null) voiceNotes.release();
+        if (recorderOverlay != null) recorderOverlay.release();
         super.onDestroy();
     }
 
@@ -394,14 +402,41 @@ public final class CameraActivity extends Activity implements SurfaceHolder.Call
         boolean wheel = device != null && "och1970_holl_key".equals(device.getName());
         boolean up = key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_VOLUME_UP;
         boolean down = key == KeyEvent.KEYCODE_DPAD_DOWN || key == KeyEvent.KEYCODE_VOLUME_DOWN;
+        boolean overlayDirection = key == KeyEvent.KEYCODE_DPAD_UP
+                || key == KeyEvent.KEYCODE_DPAD_DOWN
+                || (wheel && (key == KeyEvent.KEYCODE_VOLUME_UP
+                        || key == KeyEvent.KEYCODE_VOLUME_DOWN));
+        if (recorderOverlay != null && recorderOverlay.isVisible() && overlayDirection) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                recorderOverlay.handleWheel(up);
+            }
+            return true;
+        }
+        if (recorderOverlay != null && recorderOverlay.isVisible()
+                && (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER
+                        || key == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                recorderOverlay.handleSingle();
+            }
+            return true;
+        }
         if (wheel && (up || down)) {
             if (foreground && event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                if (recorderOverlay != null && recorderOverlay.handleWheel(up)) return true;
                 preview.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
                 selectCamera(up ? frontId : rearId);
             }
             return true;
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    @Override public void onBackPressed() {
+        if (recorderOverlay != null && recorderOverlay.isVisible()) {
+            recorderOverlay.abortAndDismiss();
+            return;
+        }
+        super.onBackPressed();
     }
 
     private void takePhoto() {

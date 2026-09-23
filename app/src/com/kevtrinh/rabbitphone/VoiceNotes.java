@@ -2,8 +2,6 @@ package com.kevtrinh.rabbitphone;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
@@ -12,6 +10,7 @@ import android.media.MediaPlayer;
 import android.media.MediaRecorder;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 
 import java.io.File;
 import java.io.IOException;
@@ -25,13 +24,36 @@ import java.util.Locale;
 
 /** Records and plays private, app-local voice notes. All public methods expect the main thread. */
 public final class VoiceNotes {
+    public static final int MAX_DURATION_MS = 60_000;
+
+    public enum Status { SAVED, MAX_DURATION, CANCELED, TOO_SHORT, ERROR }
+
+    public static final class Result {
+        public final Status status;
+        public final String message;
+        public final File file;
+        public final long durationMillis;
+
+        Result(Status status, String message, File file, long durationMillis) {
+            this.status = status;
+            this.message = message;
+            this.file = file;
+            this.durationMillis = durationMillis;
+        }
+
+        public boolean isSaved() {
+            return (status == Status.SAVED || status == Status.MAX_DURATION)
+                    && file != null && file.isFile();
+        }
+    }
+
     public interface Listener {
         void onRecordingChanged(boolean recording);
-        void onMessage(String message);
+        void onResult(Result result);
+        void onPlaybackChanged(File note, boolean playing);
     }
 
     private static final long MIN_VALID_BYTES = 512L;
-    private static final int MAX_DURATION_MS = 60_000;
 
     private final Activity activity;
     private final Listener listener;
@@ -41,9 +63,12 @@ public final class VoiceNotes {
     private final AudioFocusRequest focusRequest;
 
     private MediaRecorder recorder;
-    private File currentFile;
+    private File currentPartialFile;
+    private File currentFinalFile;
     private boolean recording;
+    private long recordingStartedAt;
     private MediaPlayer player;
+    private File playingFile;
     private boolean hasAudioFocus;
 
     private final AudioManager.OnAudioFocusChangeListener focusChangeListener =
@@ -74,24 +99,26 @@ public final class VoiceNotes {
                 .build();
     }
 
+    public boolean hasMicrophonePermission() {
+        return activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
     public boolean start() {
-        if (!requireMainThread("start recording")) return false;
-        if (recording || recorder != null) {
-            message("A voice note is already recording");
-            return false;
-        }
-        if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            message("Microphone permission is required to record a voice note");
+        if (!requireMainThread() || recording || recorder != null) return false;
+        if (!hasMicrophonePermission()) {
+            result(Status.ERROR, "Microphone permission is required", null, 0L);
             return false;
         }
         if (!notesDirectory.exists() && !notesDirectory.mkdirs()) {
-            message("Voice-note storage isn't available");
+            result(Status.ERROR, "Voice-note storage isn't available", null, 0L);
             return false;
         }
 
         stopPlayback();
-        currentFile = nextFile();
+        currentFinalFile = nextFinalFile();
+        currentPartialFile = new File(currentFinalFile.getParentFile(),
+                currentFinalFile.getName() + ".part");
         recorder = new MediaRecorder();
         final MediaRecorder activeRecorder = recorder;
         try {
@@ -101,232 +128,59 @@ public final class VoiceNotes {
             recorder.setAudioEncodingBitRate(96_000);
             recorder.setAudioSamplingRate(44_100);
             recorder.setMaxDuration(MAX_DURATION_MS);
-            recorder.setOutputFile(currentFile.getAbsolutePath());
+            recorder.setOutputFile(currentPartialFile.getAbsolutePath());
             recorder.setOnInfoListener(new MediaRecorder.OnInfoListener() {
                 @Override public void onInfo(MediaRecorder source, int what, int extra) {
                     if (source == activeRecorder
                             && what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) {
-                        stopInternal("Voice note saved at the 60-second limit");
+                        stopInternal(Status.MAX_DURATION, "Saved at the 60-second limit");
                     }
                 }
             });
             recorder.setOnErrorListener(new MediaRecorder.OnErrorListener() {
                 @Override public void onError(MediaRecorder source, int what, int extra) {
-                    if (source == activeRecorder) failRecording("Voice-note recording failed");
+                    if (source == activeRecorder) failRecording("Recording failed");
                 }
             });
             recorder.prepare();
             recorder.start();
+            recordingStartedAt = SystemClock.elapsedRealtime();
             recording = true;
             listener.onRecordingChanged(true);
             return true;
         } catch (IOException exception) {
             failRecording("Couldn't prepare the microphone");
         } catch (RuntimeException exception) {
-            failRecording("Couldn't start voice-note recording");
+            failRecording("Couldn't start recording");
         }
         return false;
     }
 
     public void stop() {
-        if (!requireMainThread("stop recording")) return;
-        stopInternal("Voice note saved");
+        if (requireMainThread()) stopInternal(Status.SAVED, "Voice note saved");
     }
 
     public void cancel() {
-        if (!requireMainThread("cancel recording")) return;
-        cancelInternal(true);
+        if (requireMainThread()) cancelInternal(true);
     }
 
-    public void showLibrary() {
-        if (!requireMainThread("open voice notes")) return;
-        stopPlayback();
-        final List<File> notes = listNotes();
-        AlertDialog.Builder builder = new AlertDialog.Builder(
-                activity, AlertDialog.THEME_DEVICE_DEFAULT_DARK)
-                .setTitle("Voice notes")
-                .setNegativeButton("Close", null);
-        if (notes.isEmpty()) {
-            builder.setMessage("Hold the side button to record your first voice note.");
-        } else {
-            CharSequence[] labels = new CharSequence[notes.size()];
-            SimpleDateFormat format = new SimpleDateFormat(
-                    "EEE, MMM d  ·  h:mm a", Locale.getDefault());
-            for (int index = 0; index < notes.size(); index++) {
-                labels[index] = format.format(new Date(notes.get(index).lastModified()));
-            }
-            builder.setItems(labels, new DialogInterface.OnClickListener() {
-                @Override public void onClick(DialogInterface dialog, int which) {
-                    if (which >= 0 && which < notes.size()) play(notes.get(which));
-                }
-            });
-        }
+    public boolean isRecording() { return recording; }
+
+    public long elapsedMillis() {
+        return recording ? Math.min(MAX_DURATION_MS,
+                Math.max(0L, SystemClock.elapsedRealtime() - recordingStartedAt)) : 0L;
+    }
+
+    public int maxAmplitude() {
+        if (!recording || recorder == null) return 0;
         try {
-            AlertDialog dialog = builder.create();
-            dialog.show();
-            RabbitTypography.applyToDialog(activity, dialog);
-        } catch (RuntimeException exception) {
-            message("Couldn't open voice notes");
-        }
-    }
-
-    public void release() {
-        if (!requireMainThread("release voice notes")) return;
-        cancelInternal(false);
-        stopPlayback();
-    }
-
-    private void stopInternal(String successMessage) {
-        if (!recording || recorder == null) return;
-        MediaRecorder activeRecorder = recorder;
-        File completedFile = currentFile;
-        recording = false;
-        recorder = null;
-        currentFile = null;
-        clearRecorderListeners(activeRecorder);
-
-        boolean stopped = false;
-        try {
-            activeRecorder.stop();
-            stopped = true;
+            return Math.max(0, recorder.getMaxAmplitude());
         } catch (RuntimeException ignored) {
-            stopped = false;
-        } finally {
-            try {
-                activeRecorder.release();
-            } catch (RuntimeException ignored) {
-                // The recording is already stopped; cleanup continues below.
-            }
-        }
-
-        listener.onRecordingChanged(false);
-        if (stopped && isValid(completedFile)) {
-            message(successMessage);
-        } else {
-            deleteQuietly(completedFile);
-            message("Voice note was too short or couldn't be saved");
+            return 0;
         }
     }
 
-    private void failRecording(String failureMessage) {
-        MediaRecorder failedRecorder = recorder;
-        File failedFile = currentFile;
-        boolean wasRecording = recording;
-        recorder = null;
-        currentFile = null;
-        recording = false;
-        if (failedRecorder != null) {
-            clearRecorderListeners(failedRecorder);
-            try {
-                failedRecorder.release();
-            } catch (RuntimeException ignored) {
-                // Cleanup below still removes any incomplete file.
-            }
-        }
-        deleteQuietly(failedFile);
-        if (wasRecording) listener.onRecordingChanged(false);
-        message(failureMessage);
-    }
-
-    private void cancelInternal(boolean announce) {
-        MediaRecorder canceledRecorder = recorder;
-        File canceledFile = currentFile;
-        boolean wasRecording = recording;
-        recorder = null;
-        currentFile = null;
-        recording = false;
-        if (canceledRecorder != null) {
-            clearRecorderListeners(canceledRecorder);
-            if (wasRecording) {
-                try {
-                    canceledRecorder.stop();
-                } catch (RuntimeException ignored) {
-                    // A canceled recording does not need to be finalized.
-                }
-            }
-            try {
-                canceledRecorder.release();
-            } catch (RuntimeException ignored) {
-                // The file is removed below regardless.
-            }
-        }
-        deleteQuietly(canceledFile);
-        if (wasRecording) listener.onRecordingChanged(false);
-        if (announce && (wasRecording || canceledFile != null)) message("Voice note canceled");
-    }
-
-    private void clearRecorderListeners(MediaRecorder target) {
-        try {
-            target.setOnInfoListener(null);
-            target.setOnErrorListener(null);
-        } catch (RuntimeException ignored) {
-            // Listener removal is best effort during recorder teardown.
-        }
-    }
-
-    private void play(File note) {
-        stopPlayback();
-        if (!note.isFile()) {
-            message("That voice note is no longer available");
-            return;
-        }
-        if (audioManager == null
-                || audioManager.requestAudioFocus(focusRequest)
-                != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            message("Audio is busy right now");
-            return;
-        }
-        hasAudioFocus = true;
-        final MediaPlayer activePlayer = new MediaPlayer();
-        player = activePlayer;
-        try {
-            activePlayer.setAudioAttributes(playbackAttributes);
-            activePlayer.setDataSource(note.getAbsolutePath());
-            activePlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
-                @Override public void onCompletion(MediaPlayer completed) {
-                    if (completed == activePlayer) stopPlayback();
-                }
-            });
-            activePlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
-                @Override public boolean onError(MediaPlayer failed, int what, int extra) {
-                    if (failed == activePlayer) {
-                        stopPlayback();
-                        message("Couldn't play that voice note");
-                    }
-                    return true;
-                }
-            });
-            activePlayer.prepare();
-            activePlayer.start();
-        } catch (IOException exception) {
-            stopPlayback();
-            message("Couldn't read that voice note");
-        } catch (RuntimeException exception) {
-            stopPlayback();
-            message("Couldn't play that voice note");
-        }
-    }
-
-    private void stopPlayback() {
-        MediaPlayer oldPlayer = player;
-        player = null;
-        if (oldPlayer != null) {
-            oldPlayer.setOnCompletionListener(null);
-            oldPlayer.setOnErrorListener(null);
-            try {
-                oldPlayer.stop();
-            } catch (RuntimeException ignored) {
-                // Release is still safe from an error or completed state.
-            }
-            oldPlayer.release();
-        }
-        if (hasAudioFocus && audioManager != null) {
-            audioManager.abandonAudioFocusRequest(focusRequest);
-            hasAudioFocus = false;
-        }
-    }
-
-    private List<File> listNotes() {
+    public List<File> listNotes() {
         File[] files = notesDirectory.listFiles();
         if (files == null || files.length == 0) return new ArrayList<File>();
         Arrays.sort(files, new Comparator<File>() {
@@ -341,12 +195,171 @@ public final class VoiceNotes {
         return notes;
     }
 
-    private File nextFile() {
+    public boolean play(File note) {
+        if (!requireMainThread()) return false;
+        stopPlayback();
+        if (!isValid(note)) {
+            result(Status.ERROR, "That voice note is no longer available", null, 0L);
+            return false;
+        }
+        if (audioManager == null
+                || audioManager.requestAudioFocus(focusRequest)
+                != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            result(Status.ERROR, "Audio is busy right now", null, 0L);
+            return false;
+        }
+        hasAudioFocus = true;
+        final MediaPlayer activePlayer = new MediaPlayer();
+        player = activePlayer;
+        playingFile = note;
+        try {
+            activePlayer.setAudioAttributes(playbackAttributes);
+            activePlayer.setDataSource(note.getAbsolutePath());
+            activePlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override public void onCompletion(MediaPlayer completed) {
+                    if (completed == activePlayer) stopPlayback();
+                }
+            });
+            activePlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override public boolean onError(MediaPlayer failed, int what, int extra) {
+                    if (failed == activePlayer) {
+                        stopPlayback();
+                        result(Status.ERROR, "Couldn't play that voice note", null, 0L);
+                    }
+                    return true;
+                }
+            });
+            activePlayer.prepare();
+            activePlayer.start();
+            listener.onPlaybackChanged(note, true);
+            return true;
+        } catch (IOException exception) {
+            stopPlayback();
+            result(Status.ERROR, "Couldn't read that voice note", null, 0L);
+        } catch (RuntimeException exception) {
+            stopPlayback();
+            result(Status.ERROR, "Couldn't play that voice note", null, 0L);
+        }
+        return false;
+    }
+
+    public void stopPlayback() {
+        File stoppedFile = playingFile;
+        MediaPlayer oldPlayer = player;
+        player = null;
+        playingFile = null;
+        if (oldPlayer != null) {
+            oldPlayer.setOnCompletionListener(null);
+            oldPlayer.setOnErrorListener(null);
+            try { oldPlayer.stop(); } catch (RuntimeException ignored) { }
+            try { oldPlayer.release(); } catch (RuntimeException ignored) { }
+        }
+        if (hasAudioFocus && audioManager != null) {
+            audioManager.abandonAudioFocusRequest(focusRequest);
+            hasAudioFocus = false;
+        }
+        if (stoppedFile != null) listener.onPlaybackChanged(stoppedFile, false);
+    }
+
+    public boolean isPlaying(File note) {
+        return player != null && playingFile != null && playingFile.equals(note);
+    }
+
+    public void release() {
+        if (!requireMainThread()) return;
+        cancelInternal(false);
+        stopPlayback();
+    }
+
+    private void stopInternal(Status successStatus, String successMessage) {
+        if (!recording || recorder == null) return;
+        MediaRecorder activeRecorder = recorder;
+        File partialFile = currentPartialFile;
+        File finalFile = currentFinalFile;
+        long duration = elapsedMillis();
+        recording = false;
+        recorder = null;
+        currentPartialFile = null;
+        currentFinalFile = null;
+        clearRecorderListeners(activeRecorder);
+
+        boolean stopped;
+        try {
+            activeRecorder.stop();
+            stopped = true;
+        } catch (RuntimeException ignored) {
+            stopped = false;
+        } finally {
+            try { activeRecorder.release(); } catch (RuntimeException ignored) { }
+        }
+
+        listener.onRecordingChanged(false);
+        if (stopped && isValid(partialFile) && partialFile.renameTo(finalFile)
+                && isValid(finalFile)) {
+            result(successStatus, successMessage, finalFile, duration);
+        } else {
+            deleteQuietly(partialFile);
+            deleteQuietly(finalFile);
+            result(Status.TOO_SHORT, "That recording was too short to save", null, duration);
+        }
+    }
+
+    private void failRecording(String failureMessage) {
+        MediaRecorder failedRecorder = recorder;
+        File partialFile = currentPartialFile;
+        File finalFile = currentFinalFile;
+        boolean wasRecording = recording;
+        recorder = null;
+        currentPartialFile = null;
+        currentFinalFile = null;
+        recording = false;
+        if (failedRecorder != null) {
+            clearRecorderListeners(failedRecorder);
+            try { failedRecorder.release(); } catch (RuntimeException ignored) { }
+        }
+        deleteQuietly(partialFile);
+        deleteQuietly(finalFile);
+        if (wasRecording) listener.onRecordingChanged(false);
+        result(Status.ERROR, failureMessage, null, 0L);
+    }
+
+    private void cancelInternal(boolean announce) {
+        MediaRecorder canceledRecorder = recorder;
+        File partialFile = currentPartialFile;
+        File finalFile = currentFinalFile;
+        boolean wasRecording = recording;
+        recorder = null;
+        currentPartialFile = null;
+        currentFinalFile = null;
+        recording = false;
+        if (canceledRecorder != null) {
+            clearRecorderListeners(canceledRecorder);
+            if (wasRecording) {
+                try { canceledRecorder.stop(); } catch (RuntimeException ignored) { }
+            }
+            try { canceledRecorder.release(); } catch (RuntimeException ignored) { }
+        }
+        deleteQuietly(partialFile);
+        deleteQuietly(finalFile);
+        if (wasRecording) listener.onRecordingChanged(false);
+        if (announce && (wasRecording || partialFile != null)) {
+            result(Status.CANCELED, "Recording canceled", null, 0L);
+        }
+    }
+
+    private void clearRecorderListeners(MediaRecorder target) {
+        try {
+            target.setOnInfoListener(null);
+            target.setOnErrorListener(null);
+        } catch (RuntimeException ignored) { }
+    }
+
+    private File nextFinalFile() {
         String base = new SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US)
                 .format(new Date());
         File candidate = new File(notesDirectory, "voice-note-" + base + ".m4a");
         int suffix = 1;
-        while (candidate.exists()) {
+        while (candidate.exists() || new File(candidate.getPath() + ".part").exists()) {
             candidate = new File(notesDirectory,
                     "voice-note-" + base + "-" + suffix + ".m4a");
             suffix++;
@@ -354,10 +367,8 @@ public final class VoiceNotes {
         return candidate;
     }
 
-    private boolean requireMainThread(String action) {
-        if (Looper.myLooper() == Looper.getMainLooper()) return true;
-        message("Can't " + action + " away from the main screen thread");
-        return false;
+    private boolean requireMainThread() {
+        return Looper.myLooper() == Looper.getMainLooper();
     }
 
     private boolean isValid(File file) {
@@ -368,7 +379,7 @@ public final class VoiceNotes {
         if (file != null && file.exists()) file.delete();
     }
 
-    private void message(String value) {
-        listener.onMessage(value);
+    private void result(Status status, String message, File file, long durationMillis) {
+        listener.onResult(new Result(status, message, file, durationMillis));
     }
 }

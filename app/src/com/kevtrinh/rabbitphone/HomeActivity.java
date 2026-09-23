@@ -76,7 +76,7 @@ public final class HomeActivity extends Activity {
     private final Handler controlsHandler = new Handler(Looper.getMainLooper());
     private HardwareButtonClient hardware;
     private ButtonGestures gestures;
-    private VoiceNotes voiceNotes;
+    private VoiceRecorderOverlay recorderOverlay;
     private boolean resumed;
     private boolean recording;
     private final Runnable clockTick = new Runnable() {
@@ -130,6 +130,7 @@ public final class HomeActivity extends Activity {
         if (intent != null
                 && Intent.ACTION_MAIN.equals(intent.getAction())
                 && intent.hasCategory(Intent.CATEGORY_HOME)) {
+            if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
             showHome();
         }
     }
@@ -172,7 +173,7 @@ public final class HomeActivity extends Activity {
         resumed = false;
         if (hardware != null) hardware.stop();
         if (gestures != null) gestures.cancel();
-        if (voiceNotes != null) voiceNotes.release();
+        if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
         super.onPause();
         clockHandler.removeCallbacks(clockTick);
         if (batteryReceiverRegistered) {
@@ -192,8 +193,13 @@ public final class HomeActivity extends Activity {
         else {
             if (hardware != null) hardware.stop();
             if (gestures != null) gestures.cancel();
-            if (recording && voiceNotes != null) voiceNotes.cancel();
+            if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
         }
+    }
+
+    @Override protected void onDestroy() {
+        if (recorderOverlay != null) recorderOverlay.release();
+        super.onDestroy();
     }
 
     private void updateControls() {
@@ -206,14 +212,12 @@ public final class HomeActivity extends Activity {
     }
 
     private void prepareControls() {
-        voiceNotes = new VoiceNotes(this, new VoiceNotes.Listener() {
-            @Override public void onRecordingChanged(boolean active) {
+        recorderOverlay = new VoiceRecorderOverlay(this, new VoiceRecorderOverlay.Host() {
+            @Override public void onRecorderActiveChanged(boolean active) {
                 recording = active;
-                if (active) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 updateStatus();
             }
-            @Override public void onMessage(String message) { showError(message); }
+            @Override public void onRecorderMessage(String message) { showError(message); }
         });
         gestures = new ButtonGestures(new ButtonGestures.Scheduler() {
             @Override public long now() { return android.os.SystemClock.uptimeMillis(); }
@@ -221,22 +225,28 @@ public final class HomeActivity extends Activity {
             @Override public void remove(Runnable action) { controlsHandler.removeCallbacks(action); }
         }, new ButtonGestures.Actions() {
             @Override public void onSingle() {
+                if (recorderOverlay.handleSingle()) return;
                 if (page == Page.IDLE) hardware.send(HardwareButtonClient.Command.SLEEP);
                 else {
                     getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
                     activateSelection();
                 }
             }
-            @Override public void onDouble() { openCamera(); }
-            @Override public void onHoldStart() {
-                if (voiceNotes.start()) getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            @Override public void onDouble() {
+                recorderOverlay.dismissForDouble();
+                openCamera();
             }
-            @Override public void onHoldEnd() { voiceNotes.stop(); }
+            @Override public void onHoldStart() {
+                recorderOverlay.beginHold();
+            }
+            @Override public void onHoldEnd() { recorderOverlay.finishHold(); }
             @Override public void onRefresh() {
+                recorderOverlay.abortAndDismiss();
                 showHome(); refreshNetwork(); updateClock();
                 showError("Phone interface refreshed");
             }
             @Override public void onShutdown() {
+                recorderOverlay.abortAndDismiss();
                 if (hardware.send(HardwareButtonClient.Command.SHUTDOWN)) showError("Powering off");
             }
         });
@@ -248,7 +258,7 @@ public final class HomeActivity extends Activity {
             @Override public void onDown(long time) { gestures.down(time); }
             @Override public void onUp(long time) { gestures.up(time); }
             @Override public void onDisconnected() {
-                gestures.cancel(); voiceNotes.cancel();
+                gestures.cancel(); recorderOverlay.abortAndDismiss();
                 android.util.Log.i("RabbitPhoneHardware", "Home controls released");
                 controlsHandler.postDelayed(new Runnable() {
                     @Override public void run() { updateControls(); }
@@ -431,7 +441,7 @@ public final class HomeActivity extends Activity {
         page = Page.UTILITIES;
         ArrayList<Entry> entries = new ArrayList<>();
         entries.add(new Entry("Voice notes", "Your local recordings", new Runnable() {
-            @Override public void run() { voiceNotes.showLibrary(); }
+            @Override public void run() { recorderOverlay.showLibrary(); }
         }));
         entries.add(new Entry("Rabbit theme", "Wallpaper and lock screen", new Runnable() {
             @Override public void run() {
@@ -443,7 +453,9 @@ public final class HomeActivity extends Activity {
                 new Intent(Intent.ACTION_VIEW, Uri.parse("content://contacts/people"))));
         entries.add(packageEntry("Clock", "Alarms and timers", "com.bnyro.clock",
                 new Intent(AlarmClock.ACTION_SHOW_ALARMS)));
-        entries.add(packageEntry("Recorder", "Voice notes", "com.bnyro.recorder", null));
+        entries.add(new Entry("Recorder", "Local voice notes", new Runnable() {
+            @Override public void run() { recorderOverlay.showLibrary(); }
+        }));
         entries.add(packageEntry("Compass", "Direction and heading", "com.techyminati.compass", null));
         renderListPage("Utilities", "Simple tools", entries);
     }
@@ -567,6 +579,7 @@ public final class HomeActivity extends Activity {
         if (up || down) {
             // Consume both edges so the ROM never forwards this wheel tick to volume.
             if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
+            if (recorderOverlay != null && recorderOverlay.handleWheel(up)) return true;
             if (page == Page.IDLE) {
                 showHome();
                 getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
@@ -583,6 +596,7 @@ public final class HomeActivity extends Activity {
         if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER
                 || key == KeyEvent.KEYCODE_NUMPAD_ENTER) {
             if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                if (recorderOverlay != null && recorderOverlay.handleSingle()) return true;
                 activateSelection();
             }
             return true;
@@ -619,6 +633,10 @@ public final class HomeActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (recorderOverlay != null && recorderOverlay.isVisible()) {
+            recorderOverlay.abortAndDismiss();
+            return;
+        }
         if (page == Page.UTILITIES) {
             savedSelection[page.ordinal()] = selection;
             showApps();

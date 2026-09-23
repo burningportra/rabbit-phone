@@ -22,9 +22,11 @@ for the owner's device.
   There are no automatic calls or sent messages.
 - A built-in camera supports front/rear rotation, explicit photo capture, and
   privacy parking. Photos go to `Pictures/Rabbit Phone`.
-- Hold-to-record voice notes stay in the app's private storage. Find and play
-  them under **All apps → Utilities → Voice notes**. Recording stops on release,
-  focus loss, or the 60-second limit. The app has no Internet permission.
+- Holding the side button opens a custom voice recorder with an elapsed timer,
+  live microphone meter and Rabbit typography. Release saves a private voice
+  note; the saved screen offers playback and the note library. Focus loss cancels
+  an unfinished take, and the 60-second limit saves it automatically. The app has
+  no Internet permission.
 - App list remains available; no packages removed or disabled.
 - **All apps → Utilities → Rabbit theme** previews and explicitly applies or
   removes the matching Home-and-lock wallpaper. Android's real keyguard,
@@ -46,10 +48,23 @@ for the owner's device.
 | Tap rabbit icon | Standby clock; button then sleeps | — |
 | Wheel/tap on standby clock | Return to app menu | — |
 
+The recorder stays inside the current Home or camera window, so holding the
+button keeps its input connection until release. In the recorder, the wheel
+moves between actions with haptics and a short side-button press selects one.
+Saved notes are also available under **All apps → Utilities → Voice notes**.
+Playback starts only when selected. Leaving the app, locking it or losing the
+hardware connection stops playback and discards an unfinished recording.
+
 Normal Android wake/lock behavior remains available. Standalone Android apps
 retain their own controls. The five-press action refreshes this local interface;
 it does not reconnect to Rabbit's cloud. This project does not supply Rabbit's
 cloud assistant or services.
+
+**Hold-to-record requires unlocked, focused Rabbit Home or its built-in Camera.**
+Wake and unlock first, fully release the wake press, then hold again. A hold from
+the lock screen, notification shade or another app still belongs to Android and
+may open its power/emergency menu. The helper intentionally releases the power
+button there; it does not record across the lock screen.
 
 ## Build and install
 
@@ -130,6 +145,21 @@ See [validation](docs/validation.md), [theme and typography](docs/theme.md),
 [verified Android base](docs/base-system.md), [hardware protocol](hardware/README.md), and
 [development rules](AGENTS.md). Hardware-driver declarations alone are not
 physical proof, and SIM calls/texts have not been carrier-tested.
+
+The optional recorder device check deliberately makes a short microphone
+recording and a second canceled take through the real PMIC input driver:
+
+```sh
+python3 scripts/verify_recorder.py --record-test
+python3 scripts/verify_recorder.py --record-test --camera
+```
+
+Announce and authorize this media test before running it. It checks the active
+microphone, release-to-save, valid AAC, starting a new take during playback,
+cancellation on focus loss and preservation of existing notes. It plays only its
+own test note and removes it afterward, without transcribing audio. Screenshots
+and the verification receipt stay in ignored
+`evidence/recorder/`.
 
 - [Rabbit's documented controls](https://www.rabbit.tech/support/article/use-rabbit-r1)
 - [CipherOS R1](https://cipheros.org.in/devices/r1)

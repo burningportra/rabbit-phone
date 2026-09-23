@@ -5,9 +5,9 @@ stock v0.8.293 kernel, portrait 480 × 640 at 190 dpi.
 
 ## Evidence established
 
-- Native APK build and v2/v3 signature verification pass. The current 0.3.0
-  build is 90,515 bytes with SHA-256
-  `a2bd32098319bf3dfa6911ecef254e389d1318b00d7d942448541b98c082c60d`.
+- Native APK build and v2/v3 signature verification pass. The current 0.4.0
+  build is 106,899 bytes with SHA-256
+  `3d48377b439a4160835ac0755c1ff35430b281bef3f8d367bd26eeb3e5053b3c`.
 - Fifteen gesture-state cases pass, including duplicate edges, hold vs click,
   single/double/five/eight presses, cancellation, delayed holds and delayed
   separated clicks. Tests do not invoke actual shutdown or record media.
@@ -35,6 +35,31 @@ stock v0.8.293 kernel, portrait 480 × 640 at 190 dpi.
   automatically reconnected to the replacement process.
 - With USB unplugged, the user confirmed wheel navigation, side-button
   selection, and hold/release local voice-note recording all work.
+
+## Custom recorder evidence
+
+- Raw DOWN/UP events through the discovered PMIC power driver opened the custom
+  recorder in both Home and the built-in Camera. The same private hardware lease
+  remained active through hold and release; no Activity handoff was required.
+- Android reported the microphone running during each hold and stopped after
+  release. Each test produced exactly one private AAC/MPEG-4 note at 44.1 kHz mono,
+  lasting 5.37 seconds in Home and 5.51 seconds in Camera. Saved feedback and
+  elapsed time were visible at the real 480 × 640 display size.
+- Device screenshots show the live microphone meter, recording controls, saved
+  actions and playback state with the verified private Power Grotesk font.
+  Starting another hold during playback returned to the timer and live meter.
+- Launching Settings during the second hold stopped the microphone and removed
+  the unfinished take in both hosts. All deliberately created test audio was
+  removed, and the note-directory hash snapshot returned to its original state.
+- Independent source review covered permission retry, partial-file finalization,
+  playback callbacks, input routing, focus/pause/refresh teardown and library
+  selection. It caught and verified fixes for playback replacing the new recorder
+  screen and a queued library-scroll callback reading a cleared view.
+
+The checks used `scripts/verify_recorder.py --record-test`, once normally and once
+with `--camera`. Ignored `evidence/recorder/home/` and `camera/` retain screenshots
+and structured receipts. They do not certify microphone quality, speaker sound,
+the 60-second cap on hardware, or a new unplugged physical-gesture check.
 
 ## Theme evidence established
 
@@ -84,7 +109,7 @@ main-surface rendering; it is not a full CRUD, call, SMS or media certification.
 
 | Surface | Verified result | Boundary |
 | --- | --- | --- |
-| Rabbit Phone Home, All apps, Utilities, camera and theme preview | Main surfaces render at 480 × 640 with Power Grotesk and the Rabbit palette | Photo capture and voice-note playback remain explicit user tests |
+| Rabbit Phone Home, All apps, Utilities, camera and theme preview | Main surfaces render at 480 × 640 with Power Grotesk and the Rabbit palette | Photo capture remains an explicit user test; custom recorder evidence is listed above |
 | Android lock screen | Actual keyguard screenshot shows Power Grotesk, warm-white hours, orange minutes, compact layout and the lower Rabbit wallpaper; normal unlock works | No PIN is configured, so PIN behavior was not tested |
 | Phone/Contacts | Phone keypad, toolbar, main and empty-state text, orange account/import actions and FAB were visually readable without placing a call | The blank Create contact form exposed zero `EditText` fields with the app color overlay disabled; contact creation remains unverified without claiming a proven root cause |
 | Messages | An actual raw wheel-down event followed by one PMIC side-button press opened Messages | No SMS was composed or sent |
@@ -104,8 +129,9 @@ source does not include those logs, identifiers, signing keys, or media.
   solely from API success.
 - The eight-click shutdown dispatch is covered in host state tests. Repeated
   shutdowns are not part of routine automated UI tests.
-- Camera capture/save and voice-note playback need explicit user-driven media
-  checks. Automated navigation checks avoid creating incidental photos/audio.
+- Camera capture/save and subjective playback quality need explicit user-driven
+  media checks. Only the announced recorder check creates and plays test audio;
+  other automated navigation checks avoid incidental media.
 - The theme is not a pixel-identical rabbitOS clone. Apps with hard-coded colors,
   Flutter rendering, imagery or web content can retain their own visuals.
 - Rabbit Phone provides no Rabbit cloud assistant or service. The five-press
