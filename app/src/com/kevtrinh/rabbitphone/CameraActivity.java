@@ -8,7 +8,6 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.Camera;
 import android.net.Uri;
@@ -153,12 +152,13 @@ public final class CameraActivity extends Activity implements SurfaceHolder.Call
         header.addView(back, new LinearLayout.LayoutParams(dp(80), dp(48)));
         TextView title = new TextView(this);
         title.setText("Camera"); title.setTextSize(25); title.setTextColor(WHITE);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setTypeface(RabbitTypography.regular(this));
         title.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         header.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
         page.addView(header);
         status = new TextView(this);
         status.setTextColor(WHITE); status.setTextSize(13);
+        status.setTypeface(RabbitTypography.regular(this));
         status.setGravity(Gravity.CENTER_VERTICAL);
         status.setMaxLines(2);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
@@ -197,6 +197,7 @@ public final class CameraActivity extends Activity implements SurfaceHolder.Call
     private Button button(String label, boolean primary) {
         Button view = new Button(this);
         view.setText(label); view.setAllCaps(false); view.setTextSize(17);
+        view.setTypeface(RabbitTypography.regular(this));
         view.setTextColor(primary ? BG : WHITE);
         view.setPadding(dp(8), 0, dp(8), 0);
         GradientDrawable shape = new GradientDrawable();

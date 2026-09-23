@@ -9,3 +9,12 @@ service rabbit-phone-controls /system/bin/sh -c "exec /system/xbin/su 0 /data/lo
 
 on property:sys.boot_completed=1
     start rabbit-phone-controls
+    start rabbit-phone-theme
+
+service rabbit-phone-theme /system/bin/sh -c "exec /system/xbin/su 0 /system/bin/sh /data/local/rabbit-phone/apply-theme.sh"
+    class late_start
+    user root
+    group root
+    seclabel u:r:shell:s0
+    disabled
+    oneshot

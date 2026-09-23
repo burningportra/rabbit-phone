@@ -162,7 +162,9 @@ public final class VoiceNotes {
             });
         }
         try {
-            builder.show();
+            AlertDialog dialog = builder.create();
+            dialog.show();
+            RabbitTypography.applyToDialog(activity, dialog);
         } catch (RuntimeException exception) {
             message("Couldn't open voice notes");
         }

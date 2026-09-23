@@ -433,6 +433,12 @@ public final class HomeActivity extends Activity {
         entries.add(new Entry("Voice notes", "Your local recordings", new Runnable() {
             @Override public void run() { voiceNotes.showLibrary(); }
         }));
+        entries.add(new Entry("Rabbit theme", "Wallpaper and lock screen", new Runnable() {
+            @Override public void run() {
+                launchIntent(new Intent(HomeActivity.this, ThemeActivity.class),
+                        "Rabbit theme isn't available");
+            }
+        }));
         entries.add(packageEntry("Contacts", "People and numbers", "com.android.contacts",
                 new Intent(Intent.ACTION_VIEW, Uri.parse("content://contacts/people"))));
         entries.add(packageEntry("Clock", "Alarms and timers", "com.bnyro.clock",
@@ -542,7 +548,7 @@ public final class HomeActivity extends Activity {
         view.setText(value);
         view.setTextSize(sp);
         view.setTextColor(color);
-        view.setTypeface(Typeface.create("sans", style));
+        view.setTypeface(RabbitTypography.regular(this));
         view.setIncludeFontPadding(false);
         return view;
     }

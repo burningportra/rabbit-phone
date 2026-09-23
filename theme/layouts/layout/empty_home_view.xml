@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@com.android.contacts:id/empty_home"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:visibility="gone"
+    android:background="@com.android.contacts:color/empty_state_background">
+
+    <ImageView
+        android:id="@com.android.contacts:id/empty_home_image"
+        android:layout_width="wrap_content"
+        android:layout_height="@com.android.contacts:dimen/empty_view_image_height"
+        android:src="@com.android.contacts:drawable/home_empty"
+        android:scaleType="centerInside"
+        android:adjustViewBounds="true" />
+
+    <TextView
+        style="@com.android.contacts:style/EmptyStateTextStyle"
+        android:id="@com.android.contacts:id/empty_home_view_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:paddingTop="@com.android.contacts:dimen/empty_home_view_text_padding_top"
+        android:text="@com.android.contacts:string/emptyMainList"
+        android:textColor="#FFF5EFE1" />
+
+    <Button
+        style="@com.android.contacts:style/AddContactsButtonStyle"
+        android:id="@com.android.contacts:id/add_contact_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:text="@com.android.contacts:string/menu_addToGroup"
+        android:textColor="#FFFF5A1F" />
+</LinearLayout>

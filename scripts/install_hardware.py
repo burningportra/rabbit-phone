@@ -66,6 +66,7 @@ def install():
     assert len(original) > 0 and len(desired) <= 4096
     staged = evidence / 'init-debug.installed.rc'
     staged.write_bytes(desired)
+    adb('shell', 'setprop', 'ctl.stop', 'rabbit-phone-theme', check=False)
     stop_helper()
     adb('shell', 'mkdir', '-p', '/data/local/rabbit-phone')
     adb('shell', 'chmod', '0700', '/data/local/rabbit-phone')
@@ -75,6 +76,13 @@ def install():
     adb('shell', 'mv', BIN + '.new', BIN)
     adb('shell', 'restorecon', BIN)
     assert adb('shell', 'sha256sum', BIN).split()[0] == expected
+    theme_source = ROOT / 'theme/apply-at-boot.sh'
+    theme_script = '/data/local/rabbit-phone/apply-theme.sh'
+    adb('push', str(theme_source), theme_script + '.new')
+    adb('shell', 'chmod', '0700', theme_script + '.new')
+    adb('shell', 'chown', 'root:root', theme_script + '.new')
+    adb('shell', 'mv', theme_script + '.new', theme_script)
+    assert adb('shell', 'sha256sum', theme_script).split()[0] == hashlib.sha256(theme_source.read_bytes()).hexdigest()
     adb('push', str(staged), '/data/local/tmp/rabbit-phone-init.rc')
     # This ROM spoofs locked/green properties; the kernel cmdline reports orange.
     # The verified owner-unlocked device permits a reversible ext4 remount.
@@ -120,6 +128,7 @@ def remove():
     current = subprocess.check_output(['adb', '-s', SERIAL, 'exec-out', 'cat', RC])
     assert hashlib.sha256(current).hexdigest() == record['installed_startup_sha256'], 'Startup file changed since installation; inspect before restoring'
     stop_helper()
+    adb('shell', 'setprop', 'ctl.stop', 'rabbit-phone-theme', check=False)
     adb('push', str(backup), '/data/local/tmp/rabbit-phone-init-restore.rc')
     adb('shell', 'mount', '-o', 'remount,rw', '/')
     try:
@@ -130,6 +139,7 @@ def remove():
     finally:
         adb('shell', 'mount', '-o', 'remount,ro', '/')
     adb('shell', 'rm', '-f', BIN)
+    adb('shell', 'rm', '-f', '/data/local/rabbit-phone/apply-theme.sh')
     print('Removed the task-owned input helper and boot service. Power uses Android defaults.')
 
 

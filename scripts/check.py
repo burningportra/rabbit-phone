@@ -67,7 +67,8 @@ def main():
         if '15 gesture cases passed' not in result.stdout:
             raise RuntimeError('ButtonGestures test receipt did not report all 15 cases')
 
-    print('Checks passed: NDK 27.2 helper build, sanitized C tests, 15 Java gesture cases.')
+    run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py', '-v'])
+    print('Checks passed: NDK helper, native sanitizers, 15 gestures, font/theme recovery tests.')
 
 
 if __name__ == '__main__':

@@ -5,6 +5,12 @@ existing CipherOS 7.0 / Android 16 installation with the stock v0.8.293 kernel,
 using a black canvas, warm white type, orange selection, and the physical wheel.
 The tested display is 480 × 640 with a 190 dpi override.
 
+The installed device can also use the owner's verified Power Grotesk font from
+stock Rabbit firmware, a black/orange Android resource palette, and a matching
+Home-and-lock wallpaper. The private font is never stored in this repository or
+bundled in the Rabbit Phone APK; local ignored replacement APKs can contain it
+for the owner's device.
+
 ## What it does
 
 - Package: `com.kevtrinh.rabbitphone`; main activity: `.HomeActivity`.
@@ -20,6 +26,9 @@ The tested display is 480 × 640 with a 190 dpi override.
   them under **All apps → Utilities → Voice notes**. Recording stops on release,
   focus loss, or the 60-second limit. The app has no Internet permission.
 - App list remains available; no packages removed or disabled.
+- **All apps → Utilities → Rabbit theme** previews and explicitly applies or
+  removes the matching Home-and-lock wallpaper. Android's real keyguard,
+  notifications, PIN and security behavior remain in charge of the lock screen.
 - A narrow native input helper handles the power button only while this
   interface is foreground and unlocked. It has no network listener, arbitrary
   shell API, accessibility service, or permanent wakelock.
@@ -77,6 +86,13 @@ The profile script applies dark mode, focused Quick Settings, the supported
 camera shortcut, and the user's New York time zone; review that profile before
 using it on another device.
 
+The Rabbit visual profile is a separate, explicit operation. It installs no
+Rabbit cloud service and does not turn third-party apps into pixel-identical
+rabbitOS screens. Selected stock apps use local, same-certificate PackageInstaller
+updates to carry Power Grotesk or finite readability fixes while preserving app
+data. See [Theme and typography](docs/theme.md) for the private-font workflow,
+system palette, tracked app updates, lock wallpaper and exact rollback order.
+
 ## Recovery
 
 The helper binary is stored under `/data/local/rabbit-phone`. Its startup entry
@@ -95,6 +111,13 @@ Rollback restores the original startup file, system settings and Cipher launcher
 It leaves app data, including voice notes, intact. It refuses to overwrite a
 startup file changed outside the recorded installation.
 
+Theme rollback is deliberately separate from hardware rollback and has an
+ordered recipe: restore tracked app APKs first, then the system-font transaction,
+the color profile, and finally the wallpaper. SystemUI restoration is staged and
+needs a reboot plus authoritative finalization. Follow the exact commands in
+[Theme and typography](docs/theme.md); each step checks its device-bound backup.
+Keep the ignored `evidence/` directory until rollback is no longer needed.
+
 The helper releases its input grabs on client disconnect, failure, or a
 three-second missing UI heartbeat. Android's original power behavior is then
 available. The app reconnects while foreground after the helper returns.
@@ -103,8 +126,8 @@ available. The app reconnects while foreground after the helper returns.
 
 ![Rabbit Phone home screen](docs/home.png)
 
-See [validation](docs/validation.md), [verified Android base](docs/base-system.md),
-[hardware protocol](hardware/README.md), and
+See [validation](docs/validation.md), [theme and typography](docs/theme.md),
+[verified Android base](docs/base-system.md), [hardware protocol](hardware/README.md), and
 [development rules](AGENTS.md). Hardware-driver declarations alone are not
 physical proof, and SIM calls/texts have not been carrier-tested.
 

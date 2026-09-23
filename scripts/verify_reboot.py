@@ -12,6 +12,50 @@ SERIAL = None
 EVIDENCE = Path(__file__).resolve().parents[1] / 'evidence'
 
 
+def verify_theme():
+    if not (EVIDENCE / 'theme/applied.json').exists():
+        return None
+    if json.loads((EVIDENCE / 'theme/applied.json').read_text()).get('status') == 'restored':
+        return None
+    deadline = time.monotonic() + 45
+    while time.monotonic() < deadline:
+        service = adb('shell', 'getprop', 'init.svc.rabbit-phone-theme')
+        primary = adb('shell', 'cmd', 'overlay', 'lookup', 'android', 'android:color/system_primary_dark')
+        background = adb('shell', 'cmd', 'overlay', 'lookup', 'android', 'android:color/system_background_dark')
+        spacing = adb('shell', 'cmd', 'overlay', 'lookup', 'com.android.systemui',
+                      'com.android.systemui:dimen/keyguard_clock_line_spacing_scale')
+        size = adb('shell', 'cmd', 'overlay', 'lookup', 'com.android.systemui',
+                   'com.android.systemui:dimen/small_clock_text_size')
+        if service == 'stopped' and primary == '#ffff5a1f' and background == '#ff0a0a09' and float(spacing) == 1.0 and size == '68.0dip':
+            break
+        time.sleep(1)
+    else:
+        raise RuntimeError('Theme did not finish and retain its expected resources after reboot')
+    applications = json.loads((EVIDENCE.parent / 'theme/apps.json').read_text())
+    for package, config in applications.items():
+        for name, expected in config['colors'].items():
+            actual = adb('shell', 'cmd', 'overlay', 'lookup', package, package + ':color/' + name)
+            assert actual.lower() == '#' + expected.lower(), package + ':' + name
+    assert adb('shell', 'getenforce') == 'Enforcing'
+    mounts = adb('shell', 'cat', '/proc/mounts').splitlines()
+    for mount in ('/', '/product'):
+        assert any(line.split()[1] == mount and 'ro' in line.split()[3].split(',') for line in mounts)
+    fonts_checked = 0
+    for transaction in sorted(EVIDENCE.glob('system-font-*/transaction.json')):
+        data = json.loads(transaction.read_text())
+        if data.get('phase') != 'applied':
+            continue
+        require_evidence_serial(data, SERIAL, transaction)
+        for entry in data['files']:
+            assert adb('shell', 'sha256sum', entry['path']).split()[0] == entry['after']
+            fonts_checked += 1
+    return {'boot_service': service, 'primary': primary, 'background': background,
+            'clock_line_spacing': spacing, 'small_clock_text_size': size,
+            'app_palettes': len(applications),
+            'font_and_config_files_verified': fonts_checked, 'selinux': 'Enforcing',
+            'system_and_product_readonly': True}
+
+
 def adb(*args, timeout=5):
     if SERIAL is None:
         raise RuntimeError('Device has not been selected')
@@ -56,11 +100,14 @@ def main():
                     role = adb('shell', 'cmd', 'role', 'get-role-holders',
                                'android.app.role.HOME')
                     assert role == 'com.kevtrinh.rabbitphone'
+                    theme = verify_theme()
                     data = {'new_boot': True, 'boot_completed': complete,
                             'startup_service': service, 'helper_pid': pid,
                             'init_service_pid': adb('shell', 'getprop',
                                                    'init.svc_debug_pid.rabbit-phone-controls'),
                             'home_package': role, 'device_serial': SERIAL}
+                    if theme is not None:
+                        data['theme'] = theme
                     EVIDENCE.mkdir(parents=True, exist_ok=True)
                     (EVIDENCE / 'reboot-verification.json').write_text(
                         json.dumps(data, indent=2) + '\n')
