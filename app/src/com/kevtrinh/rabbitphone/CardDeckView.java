@@ -33,20 +33,23 @@ public final class CardDeckView extends View {
         void onSelectionChanged(int index);
         void onActivate(int index);
         void onDismiss(int index);
+        default void onCardAction(int index, String action) { }
     }
 
     // Reference geometry: tune this group without changing touch/selection behavior.
     private static final float SCREEN_WIDTH = 480f, SCREEN_HEIGHT = 640f;
     private static final float CARD_LEFT = 68f, CARD_WIDTH = 326f, CARD_HEIGHT = 440f;
     private static final float SELECTED_TOP = 190f, SELECTED_REVEAL = 112f, HEADER_STEP = 44f;
-    private static final float ACTIVE_TOP = 96f, ACTIVE_REVEAL = 470f;
+    private static final float ACTIVE_TOP = 190f, ACTIVE_HEIGHT = 390f, ACTIVE_REVEAL = 390f;
     private static final float CLIP_TOP = 88f, CLIP_BOTTOM = 584f, CORNER_RADIUS = 16f;
     private static final float EDGE_GUARD = 32f, DRAG_STEP = 118f;
     private static final long SETTLE_MS = 180L;
     private static final int UNDECIDED = 0, VERTICAL = 1, DISMISS = 2, BLOCKED = 3;
+    private static final float ACTION_SIZE = 44f, ACTION_MARGIN = 16f, ACTION_BOTTOM = 4f;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint previewPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path glyphPath = new Path();
     private final RectF scratch = new RectF();
     private final int touchSlop;
@@ -66,6 +69,7 @@ public final class CardDeckView extends View {
     private boolean moved;
     private int pointer = -1, pressedIndex = -1, dragAxis;
     private String pressedId;
+    private String pressedAction;
     private float downX, downY, startPosition;
     private int accessibilityFocus = -1;
     private int hoveredVirtual = -1;
@@ -77,6 +81,43 @@ public final class CardDeckView extends View {
                 onInitializeAccessibilityNodeInfo(info);
                 for (int i = 0; i < cards.size(); i++)
                     if (!getCardBounds(i).isEmpty()) info.addChild(CardDeckView.this, i + 1);
+                if (isFullyExposedSelectedTimer(selected)) {
+                    info.addChild(CardDeckView.this, actionVirtualId(selected, "cancel_timer"));
+                    info.addChild(CardDeckView.this, actionVirtualId(selected, actionFor(cards.get(selected))));
+                }
+                return info;
+            }
+            int actionIndex = actionCardIndex(virtualId);
+            String actionName = actionName(virtualId);
+            if (actionIndex >= 0 && actionName != null) {
+                if (!isFullyExposedSelectedTimer(actionIndex)
+                        || !actionName.equals("cancel_timer") && !actionName.equals(actionFor(cards.get(actionIndex))))
+                    return null;
+                RectF visible = actionBounds(actionIndex, actionName);
+                if (visible.isEmpty()) return null;
+                AccessibilityNodeInfo info = AccessibilityNodeInfo.obtain();
+                info.setSource(CardDeckView.this, virtualId);
+                info.setParent(CardDeckView.this);
+                info.setPackageName(getContext().getPackageName());
+                info.setClassName("android.widget.Button");
+                String label = actionLabel(actionName);
+                info.setText(label);
+                info.setContentDescription(label);
+                info.setEnabled(isEnabled());
+                info.setVisibleToUser(isShown() && getWindowVisibility() == VISIBLE);
+                info.setClickable(true);
+                info.setFocusable(true);
+                info.setAccessibilityFocused(accessibilityFocus == virtualId);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
+                info.addAction(accessibilityFocus == virtualId
+                        ? AccessibilityNodeInfo.AccessibilityAction.ACTION_CLEAR_ACCESSIBILITY_FOCUS
+                        : AccessibilityNodeInfo.AccessibilityAction.ACTION_ACCESSIBILITY_FOCUS);
+                Rect bounds = new Rect();
+                visible.roundOut(bounds);
+                info.setBoundsInParent(bounds);
+                getLocationOnScreen(screenLocation);
+                bounds.offset(screenLocation[0], screenLocation[1]);
+                info.setBoundsInScreen(bounds);
                 return info;
             }
             int index = virtualId - 1;
@@ -89,7 +130,8 @@ public final class CardDeckView extends View {
             info.setPackageName(getContext().getPackageName());
             info.setClassName("android.widget.Button");
             info.setText(card.title);
-            if (card.active) info.setContentDescription(card.title + ", active");
+            String description = card.title + (card.active ? ", active" : "") + previewDescription(card.preview);
+            info.setContentDescription(description);
             info.setEnabled(isEnabled());
             info.setVisibleToUser(isShown() && getWindowVisibility() == VISIBLE);
             info.setClickable(true);
@@ -111,6 +153,29 @@ public final class CardDeckView extends View {
 
         @Override public boolean performAction(int virtualId, int action, Bundle arguments) {
             if (virtualId == HOST_VIEW_ID) return performAccessibilityAction(action, arguments);
+            int actionIndex = actionCardIndex(virtualId);
+            String actionName = actionName(virtualId);
+            if (actionIndex >= 0 && actionName != null) {
+                if (!isEnabled() || !isShown() || !isFullyExposedSelectedTimer(actionIndex)
+                        || !actionName.equals("cancel_timer") && !actionName.equals(actionFor(cards.get(actionIndex))))
+                    return false;
+                if (action == AccessibilityNodeInfo.ACTION_CLICK) {
+                    sendVirtualEvent(virtualId, AccessibilityEvent.TYPE_VIEW_CLICKED);
+                    if (listener != null) listener.onCardAction(actionIndex, actionName);
+                    return true;
+                }
+                if (action == AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS && accessibilityFocus != virtualId) {
+                    clearVirtualFocus();
+                    accessibilityFocus = virtualId;
+                    sendVirtualEvent(virtualId, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);
+                    return true;
+                }
+                if (action == AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS && accessibilityFocus == virtualId) {
+                    clearVirtualFocus();
+                    return true;
+                }
+                return false;
+            }
             int index = virtualId - 1;
             if (!isEnabled() || !isShown() || getCardBounds(index).isEmpty()) return false;
             if (action == AccessibilityNodeInfo.ACTION_CLICK) {
@@ -151,6 +216,9 @@ public final class CardDeckView extends View {
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         labelPaint.setTypeface(RabbitTypography.regular(context));
         labelPaint.setColor(Color.BLACK);
+        previewPaint.setTypeface(RabbitTypography.regular(context));
+        previewPaint.setColor(Color.BLACK);
+        previewPaint.setFontFeatureSettings("tnum");
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
         ViewConfiguration configuration = ViewConfiguration.get(context);
@@ -187,6 +255,38 @@ public final class CardDeckView extends View {
 
     public int getSelection() { return selected; }
 
+    /** Replaces one immutable preview without disturbing order, selection, or active gestures. */
+    public boolean updatePreview(String id, NavigationCard.Preview preview) {
+        if (id == null || id.isEmpty()) return false;
+        for (int index = 0; index < cards.size(); index++) {
+            NavigationCard previous = cards.get(index);
+            if (!id.equals(previous.id)) continue;
+            if (samePreview(previous.preview, preview)) return true;
+            String before = actionFor(previous);
+            ArrayList<NavigationCard> copy = new ArrayList<NavigationCard>(cards);
+            NavigationCard updated = new NavigationCard(previous.id, previous.title, previous.color,
+                    previous.glyph, previous.active, preview);
+            copy.set(index, updated);
+            cards = Collections.unmodifiableList(copy);
+            invalidate();
+            if (!sameAction(before, actionFor(updated))) {
+                // A cached Pause action must never turn into Restart on expiry.
+                // Preserve focus at the same visible control using its new identity.
+                if (before != null && accessibilityFocus == actionVirtualId(index, before)) {
+                    clearVirtualFocus();
+                    String next = actionFor(updated);
+                    if (next != null) {
+                        accessibilityFocus = actionVirtualId(index, next);
+                        sendVirtualEvent(accessibilityFocus, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);
+                    }
+                }
+                sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
+            }
+            return true;
+        }
+        return false;
+    }
+
     /** Visible exposed portion in view pixels, suitable for hit targets/diagnostics.
      * Returns an empty rectangle for absent, fully covered, or clipped cards. */
     public RectF getCardBounds(int index) {
@@ -203,6 +303,17 @@ public final class CardDeckView extends View {
 
     private int clampSelection(int index) {
         return cards.isEmpty() ? -1 : Math.max(0, Math.min(cards.size() - 1, index));
+    }
+
+    private boolean samePreview(NavigationCard.Preview left, NavigationCard.Preview right) {
+        if (left == right) return true;
+        if (left == null || right == null || left.kind != right.kind
+                || left.running != right.running || left.finished != right.finished) return false;
+        return left.value.equals(right.value) && left.detail.equals(right.detail);
+    }
+
+    private boolean sameAction(String left, String right) {
+        return left == null ? right == null : left.equals(right);
     }
 
     private float scale() {
@@ -237,12 +348,116 @@ public final class CardDeckView extends View {
 
     private void visibleBounds(int index, RectF bounds) {
         float top = cardTop(index);
-        float bottom = Math.min(CLIP_BOTTOM, top + CARD_HEIGHT);
+        float bottom = Math.min(CLIP_BOTTOM, top + cardHeight(index));
         if (index + 1 < cards.size()) bottom = Math.min(bottom, cardTop(index + 1));
         float left = CARD_LEFT + (index == dismissIndex ? dismissOffset : 0f);
         bounds.set(Math.max(0f, left), Math.max(CLIP_TOP, top),
                 Math.min(SCREEN_WIDTH, left + CARD_WIDTH), bottom);
         if (bounds.isEmpty()) bounds.setEmpty();
+    }
+
+    private float cardHeight(int index) {
+        return index >= 0 && index < cards.size() && cards.get(index).active
+                ? ACTIVE_HEIGHT : CARD_HEIGHT;
+    }
+
+    private boolean isFullyExposedSelectedPreview(int index) {
+        if (!isEnabled() || index != selected || index < 0 || index >= cards.size()
+                || Math.abs(position - selected) > .001f) return false;
+        NavigationCard card = cards.get(index);
+        if (!card.active || card.preview == null) return false;
+        float top = cardTop(index);
+        float bottom = top + ACTIVE_HEIGHT;
+        if (top < CLIP_TOP || bottom > CLIP_BOTTOM) return false;
+        return index + 1 >= cards.size() || cardTop(index + 1) >= bottom - .01f;
+    }
+
+    private boolean isFullyExposedSelectedTimer(int index) {
+        return isFullyExposedSelectedPreview(index)
+                && cards.get(index).preview.kind == NavigationCard.Preview.Kind.TIMER;
+    }
+
+    private String actionFor(NavigationCard card) {
+        if (card == null || card.preview == null || card.preview.kind != NavigationCard.Preview.Kind.TIMER)
+            return null;
+        if (card.preview.finished) return "restart_timer";
+        return card.preview.running ? "pause_timer" : "resume_timer";
+    }
+
+    private String actionAt(int index, float x, float y) {
+        if (!isFullyExposedSelectedTimer(index)) return null;
+        RectF cancel = actionBounds(index, "cancel_timer");
+        if (cancel.contains(x, y)) return "cancel_timer";
+        RectF primary = actionBounds(index, actionFor(cards.get(index)));
+        return primary.contains(x, y) ? actionFor(cards.get(index)) : null;
+    }
+
+    private RectF actionBounds(int index, String action) {
+        RectF result = new RectF();
+        if (action == null || index < 0 || index >= cards.size() || scale() <= 0f) return result;
+        float top = cardTop(index);
+        float left = CARD_LEFT + (index == dismissIndex ? dismissOffset : 0f);
+        float x = "cancel_timer".equals(action) ? left + ACTION_MARGIN
+                : left + CARD_WIDTH - ACTION_MARGIN - ACTION_SIZE;
+        float y = top + ACTIVE_HEIGHT - ACTION_BOTTOM - ACTION_SIZE;
+        float scale = scale();
+        float centerX = originX() + (x + ACTION_SIZE / 2f) * scale;
+        float centerY = originY() + (y + ACTION_SIZE / 2f) * scale;
+        float hitSize = Math.max(ACTION_SIZE * scale, 44f * getResources().getDisplayMetrics().density);
+        float cardLeft = originX() + left * scale;
+        float cardTop = originY() + top * scale;
+        float cardRight = cardLeft + CARD_WIDTH * scale;
+        float cardBottom = cardTop + ACTIVE_HEIGHT * scale;
+        float half = hitSize / 2f;
+        float hitLeft = Math.max(cardLeft, centerX - half);
+        float hitTop = Math.max(cardTop, centerY - half);
+        float hitRight = Math.min(cardRight, centerX + half);
+        float hitBottom = Math.min(cardBottom, centerY + half);
+        result.set(hitLeft, hitTop, hitRight, hitBottom);
+        return result;
+    }
+
+    private int actionVirtualId(int index, String action) {
+        int offset;
+        if ("cancel_timer".equals(action)) offset = 0;
+        else if ("pause_timer".equals(action)) offset = 1;
+        else if ("resume_timer".equals(action)) offset = 2;
+        else if ("restart_timer".equals(action)) offset = 3;
+        else return -1;
+        return cards.size() + 1 + index * 4 + offset;
+    }
+
+    private int actionCardIndex(int virtualId) {
+        int base = cards.size() + 1;
+        return virtualId < base ? -1 : (virtualId - base) / 4;
+    }
+
+    private String actionName(int virtualId) {
+        int base = cards.size() + 1;
+        if (virtualId < base) return null;
+        switch ((virtualId - base) % 4) {
+            case 0: return "cancel_timer";
+            case 1: return "pause_timer";
+            case 2: return "resume_timer";
+            default: return "restart_timer";
+        }
+    }
+
+    private String actionLabel(String action) {
+        if ("cancel_timer".equals(action)) return "Cancel timer";
+        if ("pause_timer".equals(action)) return "Pause timer";
+        if ("resume_timer".equals(action)) return "Resume timer";
+        if ("restart_timer".equals(action)) return "Restart timer";
+        return "Timer action";
+    }
+
+    private int actionVirtualBase() { return cards.size() + 1; }
+
+    private String previewDescription(NavigationCard.Preview preview) {
+        if (preview == null) return "";
+        String state = preview.finished ? "finished" : preview.running ? "running" : "paused";
+        String detail = preview.detail.isEmpty() ? "" : ", " + preview.detail;
+        return ", " + preview.value + detail + ", " + state;
     }
 
     private int hitCard(float x, float y) {
@@ -328,8 +543,15 @@ public final class CardDeckView extends View {
     }
 
     private void announceSettledBounds() {
-        if (accessibilityFocus > 0 && getCardBounds(accessibilityFocus - 1).isEmpty()) clearVirtualFocus();
+        if (accessibilityFocus > 0 && createVirtualNodeVisible(accessibilityFocus) == false) clearVirtualFocus();
         sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
+    }
+
+    private boolean createVirtualNodeVisible(int virtualId) {
+        int actionIndex = actionCardIndex(virtualId);
+        if (actionIndex >= 0) return actionName(virtualId) != null
+                && isFullyExposedSelectedTimer(actionIndex);
+        return !getCardBounds(virtualId - 1).isEmpty();
     }
 
     private void settle(boolean animate) {
@@ -425,6 +647,7 @@ public final class CardDeckView extends View {
             pointer = event.getPointerId(0);
             pressedIndex = hit;
             pressedId = cards.get(hit).id;
+            pressedAction = actionAt(hit, event.getX(), event.getY());
             downX = event.getX(); downY = event.getY(); startPosition = position;
             velocity = VelocityTracker.obtain();
             velocity.addMovement(event);
@@ -473,12 +696,17 @@ public final class CardDeckView extends View {
             int hit = hitCard(event.getX(point), event.getY(point));
             int index = pressedIndex, axis = dragAxis;
             String id = pressedId;
+            String actionName = pressedAction;
             boolean tap = !moved && Math.abs(dx) <= touchSlop && Math.abs(dy) <= touchSlop && hit == index;
+            boolean actionTap = tap && actionName != null && sameCard(index, id)
+                    && actionName.equals(actionAt(index, event.getX(point), event.getY(point)));
             boolean dismiss = axis == DISMISS && (dx < -CARD_WIDTH * scale * .28f
                     || (dx < -48f * scale && vx < -650f * scale));
             float projected = position + Math.max(-2f, Math.min(2f, -vy * .12f / (DRAG_STEP * scale)));
             finishTouch();
-            if (tap) {
+            if (actionTap) {
+                if (listener != null) listener.onCardAction(index, actionName);
+            } else if (tap) {
                 selectFromUser(index);
                 settle(true);
                 if (selected == index && sameCard(index, id)) performClick();
@@ -503,6 +731,7 @@ public final class CardDeckView extends View {
         consuming = tracking = moved = false;
         pointer = pressedIndex = -1;
         pressedId = null;
+        pressedAction = null;
         dragAxis = UNDECIDED;
     }
 
@@ -570,39 +799,108 @@ public final class CardDeckView extends View {
         canvas.clipRect(0f, CLIP_TOP, SCREEN_WIDTH, CLIP_BOTTOM);
         for (int i = 0; i < cards.size(); i++) {
             float top = cardTop(i);
-            if (top >= CLIP_BOTTOM || top + CARD_HEIGHT <= CLIP_TOP) continue;
-            drawCard(canvas, cards.get(i), CARD_LEFT + (i == dismissIndex ? dismissOffset : 0f), top);
+            if (top >= CLIP_BOTTOM || top + cardHeight(i) <= CLIP_TOP) continue;
+            drawCard(canvas, cards.get(i), i,
+                    CARD_LEFT + (i == dismissIndex ? dismissOffset : 0f), top);
         }
         canvas.restoreToCount(save);
     }
 
-    private void drawCard(Canvas canvas, NavigationCard card, float left, float top) {
-        if (card.active) {
+    private void drawCard(Canvas canvas, NavigationCard card, int index, float left, float top) {
+        float height = cardHeight(index);
+        if (card.active && index == selected) {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(3f);
             paint.setColor(0xff51515f);
-            canvas.drawRoundRect(left - 6f, top - 6f, left + CARD_WIDTH + 6f, top + CARD_HEIGHT + 6f,
+            canvas.drawRoundRect(left - 6f, top - 6f, left + CARD_WIDTH + 6f, top + height + 6f,
                     CORNER_RADIUS + 6f, CORNER_RADIUS + 6f, paint);
         }
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(card.color);
-        canvas.drawRoundRect(left, top, left + CARD_WIDTH, top + CARD_HEIGHT, CORNER_RADIUS, CORNER_RADIUS, paint);
+        canvas.drawRoundRect(left, top, left + CARD_WIDTH, top + height, CORNER_RADIUS, CORNER_RADIUS, paint);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2f);
         paint.setColor(Color.BLACK);
-        canvas.drawRoundRect(left, top, left + CARD_WIDTH, top + CARD_HEIGHT, CORNER_RADIUS, CORNER_RADIUS, paint);
+        canvas.drawRoundRect(left, top, left + CARD_WIDTH, top + height, CORNER_RADIUS, CORNER_RADIUS, paint);
         drawGlyph(canvas, card.glyph, left + 12f, top + 6f, 29f, card.color);
         labelPaint.setTextAlign(Paint.Align.RIGHT);
         labelPaint.setTextSize(28f);
         float width = labelPaint.measureText(card.title);
         if (width > CARD_WIDTH - 70f) labelPaint.setTextSize(28f * (CARD_WIDTH - 70f) / width);
         canvas.drawText(card.title, left + CARD_WIDTH - 13f, top + 29f, labelPaint);
-        drawGlyph(canvas, card.glyph, left + CARD_WIDTH / 2f - 52f, top + CARD_HEIGHT / 2f - 52f, 104f, card.color);
-        if (top + CARD_HEIGHT <= CLIP_BOTTOM) {
+        if (card.active && card.preview != null) {
+            drawPreview(canvas, card, index, left, top);
+        } else {
+            drawGlyph(canvas, card.glyph, left + CARD_WIDTH / 2f - 52f, top + height / 2f - 52f, 104f, card.color);
+        }
+        if (top + height <= CLIP_BOTTOM && !(card.active && card.preview != null)) {
             labelPaint.setTextAlign(Paint.Align.LEFT);
             labelPaint.setTextSize(28f);
-            canvas.drawText(card.title, left + 18f, top + CARD_HEIGHT - 20f, labelPaint);
-            drawGlyph(canvas, card.glyph, left + CARD_WIDTH - 42f, top + CARD_HEIGHT - 45f, 27f, card.color);
+            canvas.drawText(card.title, left + 18f, top + height - 20f, labelPaint);
+            drawGlyph(canvas, card.glyph, left + CARD_WIDTH - 42f, top + height - 45f, 27f, card.color);
+        }
+    }
+
+    private void drawPreview(Canvas canvas, NavigationCard card, int index, float left, float top) {
+        NavigationCard.Preview preview = card.preview;
+        if (preview == null) return;
+        drawPreviewText(canvas, preview.value,
+                preview.kind == NavigationCard.Preview.Kind.TIMER ? 70f : 52f,
+                left + CARD_WIDTH / 2f, top + ACTIVE_HEIGHT / 2f + 29f);
+        drawPreviewText(canvas, preview.detail, 26f, left + CARD_WIDTH / 2f, top + ACTIVE_HEIGHT / 2f + 67f);
+        if (preview.kind == NavigationCard.Preview.Kind.TIMER && isFullyExposedSelectedTimer(index)) {
+            drawTimerAction(canvas, left + ACTION_MARGIN, top + ACTIVE_HEIGHT - ACTION_BOTTOM - ACTION_SIZE,
+                    "cancel_timer");
+            drawTimerAction(canvas, left + CARD_WIDTH - ACTION_MARGIN - ACTION_SIZE,
+                    top + ACTIVE_HEIGHT - ACTION_BOTTOM - ACTION_SIZE, actionFor(card));
+        }
+    }
+
+    private void drawPreviewText(Canvas canvas, String value, float preferredSize, float centerX, float baseline) {
+        previewPaint.setTextAlign(Paint.Align.CENTER);
+        previewPaint.setTextSize(preferredSize);
+        float available = CARD_WIDTH - 40f;
+        float width = previewPaint.measureText(value);
+        if (width > available && width > 0f) previewPaint.setTextSize(preferredSize * available / width);
+        canvas.drawText(value, centerX, baseline, previewPaint);
+    }
+
+    private void drawTimerAction(Canvas canvas, float left, float top, String action) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.BLACK);
+        if (action.equals(pressedAction)) {
+            paint.setStyle(Paint.Style.FILL); paint.setColor(0x18000000);
+            canvas.drawCircle(left + ACTION_SIZE / 2f, top + ACTION_SIZE / 2f, ACTION_SIZE / 2f, paint);
+            paint.setColor(Color.BLACK);
+        }
+        float centerX = left + ACTION_SIZE / 2f, centerY = top + ACTION_SIZE / 2f;
+        paint.setStyle(Paint.Style.FILL);
+        if ("cancel_timer".equals(action)) {
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(3.5f);
+            canvas.drawLine(centerX - 10f, centerY - 10f, centerX + 10f, centerY + 10f, paint);
+            canvas.drawLine(centerX - 10f, centerY + 10f, centerX + 10f, centerY - 10f, paint);
+        } else if ("pause_timer".equals(action)) {
+            canvas.drawRect(centerX - 9f, centerY - 12f, centerX - 3f, centerY + 12f, paint);
+            canvas.drawRect(centerX + 3f, centerY - 12f, centerX + 9f, centerY + 12f, paint);
+        } else if ("resume_timer".equals(action)) {
+            glyphPath.reset();
+            glyphPath.moveTo(centerX - 7f, centerY - 13f);
+            glyphPath.lineTo(centerX + 13f, centerY);
+            glyphPath.lineTo(centerX - 7f, centerY + 13f);
+            glyphPath.close();
+            canvas.drawPath(glyphPath, paint);
+        } else if ("restart_timer".equals(action)) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            canvas.drawArc(centerX - 12f, centerY - 12f, centerX + 12f, centerY + 12f, -55f, 285f, false, paint);
+            paint.setStyle(Paint.Style.FILL);
+            glyphPath.reset();
+            glyphPath.moveTo(centerX + 13f, centerY - 14f);
+            glyphPath.lineTo(centerX + 13f, centerY - 2f);
+            glyphPath.lineTo(centerX + 3f, centerY - 7f);
+            glyphPath.close();
+            canvas.drawPath(glyphPath, paint);
         }
     }
 
@@ -632,9 +930,13 @@ public final class CardDeckView extends View {
                 fill(Color.BLACK); star(canvas, 16, 20, 6);
                 break;
             case TIMER:
-                canvas.drawCircle(16, 17, 13, paint);
-                fill(paper); canvas.drawCircle(16, 17, 9, paint);
-                stroke(Color.BLACK, 4); canvas.drawLine(12, 21, 22, 11, paint);
+                stroke(Color.BLACK, 3f);
+                canvas.drawCircle(16, 19, 10, paint);
+                canvas.drawLine(16, 19, 22, 13, paint);
+                canvas.drawLine(12, 3, 20, 3, paint);
+                canvas.drawLine(16, 3, 16, 9, paint);
+                canvas.drawLine(6, 7, 3, 10, paint);
+                canvas.drawLine(26, 7, 29, 10, paint);
                 break;
             case TRANSLATE:
                 canvas.drawRect(2, 10, 14, 29, paint); canvas.drawRect(17, 3, 30, 25, paint);

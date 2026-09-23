@@ -63,9 +63,15 @@ def main():
              ROOT / 'app/src/com/kevtrinh/rabbitphone/ButtonGestures.java',
              ROOT / 'tests/ButtonGesturesTest.java',
              ROOT / 'app/src/com/kevtrinh/rabbitphone/CardNavigation.java',
-             ROOT / 'tests/CardNavigationTest.java'])
+             ROOT / 'tests/CardNavigationTest.java',
+             ROOT / 'app/src/com/kevtrinh/rabbitphone/TimerState.java',
+             ROOT / 'tests/TimerStateTest.java'])
         gesture = run([java / 'java', '-cp', java_classes, 'ButtonGesturesTest'], capture=True)
         navigation = run([java / 'java', '-cp', java_classes, 'CardNavigationTest'], capture=True)
+        timer = run([java / 'java', '-cp', java_classes, 'TimerStateTest'], capture=True)
+        print(timer.stdout, end='')
+        if '15 timer state groups passed' not in timer.stdout:
+            raise RuntimeError('TimerState test receipt did not report all cases')
         print(gesture.stdout, end='')
         print(navigation.stdout, end='')
         if '15 gesture cases passed' not in gesture.stdout:

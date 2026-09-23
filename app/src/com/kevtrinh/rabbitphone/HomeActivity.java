@@ -64,7 +64,7 @@ public final class HomeActivity extends Activity {
     private static final int DARK_INK = Color.rgb(22, 18, 14);
     private static final int CARD = Color.rgb(27, 27, 24);
 
-    private enum Page { HOME, DECK, APPS, UTILITIES, SETTINGS, KEYBOARD, FEATURE, CAMERA, IDLE }
+    private enum Page { HOME, DECK, APPS, UTILITIES, SETTINGS, KEYBOARD, FEATURE, CAMERA, TIMER_SETUP, IDLE }
 
     private static final class Entry {
         final String id;
@@ -97,6 +97,12 @@ public final class HomeActivity extends Activity {
     private boolean returningFromApp;
     private CameraScreen cameraScreen;
     private boolean cameraReturnHome;
+    private TimerStore timerStore;
+    private TimerSetupView timerSetup;
+    private boolean timerReadError;
+    private final Runnable timerTick = new Runnable() {
+        @Override public void run() { refreshTimerTick(); }
+    };
     private final Handler controlsHandler = new Handler(Looper.getMainLooper());
     private HardwareButtonClient hardware;
     private ButtonGestures gestures;
@@ -142,7 +148,9 @@ public final class HomeActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        timerStore = new TimerStore(this);
         prepareCards();
+        syncTimerCard(timerSnapshot());
         prepareControls();
         showHome();
         handleNavigationIntent(getIntent());
@@ -169,10 +177,12 @@ public final class HomeActivity extends Activity {
         if (action == null) action = intent.getAction();
         if (!NavigationIntents.ACTION_OPEN_CAMERA.equals(action)
                 && !NavigationIntents.ACTION_OPEN_KEYBOARD.equals(action)
-                && !NavigationIntents.ACTION_OPEN_SETTINGS.equals(action)) return false;
+                && !NavigationIntents.ACTION_OPEN_SETTINGS.equals(action)
+                && !NavigationIntents.ACTION_OPEN_TIMER.equals(action)) return false;
         recorderOverlay.abortAndDismiss(); quickSettings.dismiss();
         if (NavigationIntents.ACTION_OPEN_CAMERA.equals(action)) openCamera();
         else if (NavigationIntents.ACTION_OPEN_KEYBOARD.equals(action)) showKeyboard();
+        else if (NavigationIntents.ACTION_OPEN_TIMER.equals(action)) showTimerResult();
         else showSettings();
         return true;
     }
@@ -211,11 +221,28 @@ public final class HomeActivity extends Activity {
         registerBatteryStatus();
         registerNetworkStatus();
         updateControls(); updateSurfaceMode();
+        try {
+            if (syncTimerCard(timerStore.reconcile()) && page == Page.DECK) showDeck(false);
+        } catch (RuntimeException error) {
+            boolean pausedForAccess = false;
+            try {
+                if (!timerStore.canSchedule()) {
+                    TimerStore.Snapshot paused = timerStore.pause();
+                    pausedForAccess = paused.phase == TimerState.Phase.PAUSED;
+                    boolean orderChanged = syncTimerCard(paused);
+                    if (orderChanged && page == Page.DECK) showDeck(false);
+                }
+            } catch (RuntimeException unavailable) { /* Retain unreadable state for recovery. */ }
+            String message = error.getMessage() == null ? "Timer recovery is unavailable" : error.getMessage();
+            showError(pausedForAccess ? "Timer paused. " + message : message);
+        }
+        refreshTimerTick();
     }
 
     @Override
     protected void onPause() {
         resumed = false;
+        controlsHandler.removeCallbacks(timerTick);
         if (cameraScreen != null) cameraScreen.onPause();
         if (hardware != null) hardware.stop();
         if (gestures != null) gestures.cancel();
@@ -237,8 +264,9 @@ public final class HomeActivity extends Activity {
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
         if (cameraScreen != null) { cameraScreen.onWindowFocusChanged(focused); return; }
-        if (focused) { updateControls(); updateSurfaceMode(); }
+        if (focused) { updateControls(); updateSurfaceMode(); refreshTimerTick(); }
         else {
+            controlsHandler.removeCallbacks(timerTick);
             if (hardware != null) hardware.stop();
             if (gestures != null) gestures.cancel();
             if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
@@ -247,6 +275,7 @@ public final class HomeActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        controlsHandler.removeCallbacks(timerTick);
         releaseCameraScreen();
         if (recorderOverlay != null) recorderOverlay.release();
         if (quickSettings != null) quickSettings.release();
@@ -291,6 +320,7 @@ public final class HomeActivity extends Activity {
             @Override public void onSingle() {
                 if (quickSettings.handleSingle()) return;
                 if (recorderOverlay.handleSingle()) return;
+                if (timerSetup != null && timerSetup.handleSingle()) return;
                 if (page == Page.HOME || page == Page.IDLE) hardware.send(HardwareButtonClient.Command.SLEEP);
                 else {
                     getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
@@ -397,7 +427,7 @@ public final class HomeActivity extends Activity {
         addCard("timer", "timer", 0xff6b63ff, NavigationCard.Glyph.TIMER,
                 new Runnable() {
                     @Override public void run() {
-                        if (launchIntent(new Intent(AlarmClock.ACTION_SET_TIMER), "No timer is installed")) markOpened("timer");
+                        showTimerSetup();
                     }
                 });
         addCard("translator", "translator", 0xff02f719, NavigationCard.Glyph.TRANSLATE,
@@ -453,6 +483,7 @@ public final class HomeActivity extends Activity {
             for (int i = 0; i < saved.length(); i++) opened.add(saved.getString(i));
         } catch (org.json.JSONException ignored) { }
         navigation.restoreOpened(opened);
+        navigation.select(0);
     }
 
     private void addCard(String id, String title, int color, NavigationCard.Glyph glyph, Runnable action) {
@@ -483,6 +514,7 @@ public final class HomeActivity extends Activity {
     }
 
     private void showDeck(boolean reveal) {
+        syncTimerCard(timerSnapshot());
         page = Page.DECK;
         ArrayList<Entry> entries = new ArrayList<>();
         for (String id : navigation.order()) entries.add(primaryCards.get(id));
@@ -495,8 +527,10 @@ public final class HomeActivity extends Activity {
         FrameLayout canvas = new FrameLayout(this); canvas.setBackgroundColor(Color.BLACK);
         cardDeck = new CardDeckView(this);
         ArrayList<NavigationCard> cards = new ArrayList<>();
+        TimerStore.Snapshot timer = timerSnapshot();
         for (Entry entry : entries) cards.add(new NavigationCard(entry.id, entry.label, entry.color,
-                entry.glyph, page == Page.DECK && navigation.isOpened(entry.id)));
+                entry.glyph, page == Page.DECK && navigation.isOpened(entry.id),
+                "timer".equals(entry.id) ? timerPreview(timer) : null));
         selection = clamp(selected, 0, Math.max(0, entries.size() - 1));
         cardDeck.setCards(cards, selection);
         cardDeck.setListener(new CardDeckView.Listener() {
@@ -506,15 +540,20 @@ public final class HomeActivity extends Activity {
                 getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
             }
             @Override public void onActivate(int index) { selection = index; activateSelection(); }
+            @Override public void onCardAction(int index, String action) {
+                if (page == Page.DECK && index >= 0 && index < visibleEntries.size()
+                        && "timer".equals(visibleEntries.get(index).id)) handleTimerAction(action);
+            }
             @Override public void onDismiss(int index) {
                 if (page != Page.DECK || index < 0 || index >= visibleEntries.size()) return;
+                if ("timer".equals(visibleEntries.get(index).id)) { handleTimerAction("cancel_timer"); return; }
                 navigation.close(visibleEntries.get(index).id); persistOpened(); showDeck(false);
                 getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CONFIRM);
             }
         });
         canvas.addView(cardDeck, new FrameLayout.LayoutParams(-1, -1));
         canvas.addView(statusHeader(back), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
-        installPage(canvas, false); updateClock(); updateStatus();
+        installPage(canvas, false); updateClock(); updateStatus(); refreshTimerTick();
         if (reveal && ValueAnimator.areAnimatorsEnabled()) {
             cardDeck.setTranslationY(100 * screenScale()); cardDeck.setAlpha(.4f);
             cardDeck.animate().translationY(0).alpha(1).setDuration(240)
@@ -523,6 +562,8 @@ public final class HomeActivity extends Activity {
     }
 
     private void installPage(View content, boolean home) {
+        controlsHandler.removeCallbacks(timerTick);
+        if (page != Page.TIMER_SETUP) timerSetup = null;
         releaseCameraScreen();
         navigationSurface = new NavigationSurface(this); navigationSurface.setHome(home);
         navigationSurface.setListener(new NavigationSurface.Listener() {
@@ -544,6 +585,10 @@ public final class HomeActivity extends Activity {
                 || (quickSettings != null && quickSettings.isVisible());
         if (navigationSurface != null) navigationSurface.setHome(page == Page.HOME && !modal);
         if (cardDeck != null) cardDeck.setEnabled(!modal);
+        if (timerSetup != null) {
+            timerSetup.setEnabled(!modal);
+            timerSetup.setImportantForAccessibility(modal ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        }
     }
 
     private void showQuickSettings() {
@@ -551,25 +596,120 @@ public final class HomeActivity extends Activity {
         updateSurfaceMode();
     }
 
-    private View statusHeader(boolean back) {
+    private View statusHeader(boolean back) { return statusHeader(back, WARM_WHITE); }
+
+    private View statusHeader(boolean back, int tint) {
         FrameLayout header = new FrameLayout(this);
-        clockView = text("", 22, WARM_WHITE, Typeface.NORMAL); clockView.setGravity(Gravity.CENTER);
+        clockView = text("", 22, tint, Typeface.NORMAL); clockView.setGravity(Gravity.CENTER);
         header.addView(clockView, new FrameLayout.LayoutParams(-1, -1));
         if (back) {
-            TextView button = text("‹ back", 18, WARM_WHITE, Typeface.NORMAL);
-            button.setGravity(Gravity.CENTER_VERTICAL); button.setPadding(dp(14), 0, 0, 0);
-            button.setContentDescription("Back"); button.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View view) { onBackPressed(); }
-            });
-            header.addView(button, new FrameLayout.LayoutParams(dp(110), -1, Gravity.LEFT));
+            View button = new BackControl(tint);
+            header.addView(button, new FrameLayout.LayoutParams(Math.round(160 * screenScale()), -1, Gravity.LEFT));
         }
-        batteryIcon = new BatteryIcon(this);
+        batteryIcon = new BatteryIcon(this, tint);
         FrameLayout.LayoutParams battery = new FrameLayout.LayoutParams(dp(27), dp(17), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         battery.rightMargin = dp(24); header.addView(batteryIcon, battery);
         return header;
     }
 
     private float screenScale() { return getResources().getDisplayMetrics().widthPixels / 480f; }
+
+    private TimerStore.Snapshot timerSnapshot() {
+        try {
+            TimerStore.Snapshot snapshot = timerStore.snapshot();
+            timerReadError = false;
+            return snapshot;
+        } catch (RuntimeException error) {
+            if (!timerReadError) showError(error.getMessage() == null ? "Timer is unavailable" : error.getMessage());
+            timerReadError = true;
+            return null;
+        }
+    }
+
+    private boolean syncTimerCard(TimerStore.Snapshot snapshot) {
+        if (snapshot == null) return false;
+        boolean exists = snapshot.phase != TimerState.Phase.NONE;
+        if (exists == navigation.isOpened("timer")) return false;
+        if (exists) navigation.open("timer"); else navigation.close("timer");
+        persistOpened();
+        return true;
+    }
+
+    private NavigationCard.Preview timerPreview(TimerStore.Snapshot snapshot) {
+        if (snapshot == null || snapshot.phase == TimerState.Phase.NONE) return null;
+        long seconds = Math.max(0, (snapshot.remainingMs + 999) / 1000);
+        String value = seconds >= 3600
+                ? String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60)
+                : String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60);
+        long total = snapshot.durationMs / 1000;
+        String detail;
+        if (snapshot.phase == TimerState.Phase.FINISHED) detail = "time's up";
+        else if (total % 60 == 0 && total < 3600) detail = total / 60 + (total == 60 ? " minute" : " minutes");
+        else if (total < 60) detail = total + (total == 1 ? " second" : " seconds");
+        else if (total % 3600 == 0) detail = total / 3600 + (total == 3600 ? " hour" : " hours");
+        else detail = (total >= 3600 ? total / 3600 + "h " : "")
+                    + (total / 60) % 60 + "m " + total % 60 + "s";
+        return new NavigationCard.Preview(NavigationCard.Preview.Kind.TIMER, value, detail,
+                snapshot.phase == TimerState.Phase.RUNNING, snapshot.phase == TimerState.Phase.FINISHED);
+    }
+
+    private void showTimerSetup() {
+        page = Page.TIMER_SETUP;
+        homeVisual = null; cardDeck = null; scrollView = null;
+        visibleEntries.clear(); selectableViews.clear();
+        clockView = dateView = statusView = null;
+        FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
+        timerSetup = new TimerSetupView(this, new TimerSetupView.Host() {
+            @Override public void onStart(long durationMillis) {
+                if (!resumed || !hasWindowFocus()) return;
+                try {
+                    timerStore.start(durationMillis);
+                    navigation.open("timer"); persistOpened();
+                    showDeck(true);
+                } catch (RuntimeException error) {
+                    showError(error.getMessage() == null ? "Timer couldn't start" : error.getMessage());
+                }
+            }
+        });
+        root.addView(timerSetup, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(statusHeader(true, 0xff6b63ff), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
+        installPage(root, false); updateClock(); updateStatus();
+    }
+
+    private void showTimerResult() {
+        TimerStore.Snapshot snapshot = timerSnapshot();
+        if (snapshot == null || snapshot.phase == TimerState.Phase.NONE) { showTimerSetup(); return; }
+        navigation.open("timer"); persistOpened(); showDeck(false);
+    }
+
+    private void handleTimerAction(String action) {
+        if (!resumed || !hasWindowFocus()) return;
+        try {
+            TimerStore.Snapshot current = timerStore.snapshot();
+            if ("cancel_timer".equals(action)) {
+                timerStore.cancel(); navigation.close("timer"); persistOpened(); showDeck(false);
+                return;
+            }
+            if ("pause_timer".equals(action) && current.phase == TimerState.Phase.RUNNING) timerStore.pause();
+            else if ("resume_timer".equals(action) && current.phase == TimerState.Phase.PAUSED) timerStore.resume();
+            else if ("restart_timer".equals(action) && current.phase == TimerState.Phase.FINISHED) timerStore.start(current.durationMs);
+            refreshTimerTick();
+        } catch (RuntimeException error) {
+            showError(error.getMessage() == null ? "Timer couldn't change" : error.getMessage());
+        }
+    }
+
+    private void refreshTimerTick() {
+        controlsHandler.removeCallbacks(timerTick);
+        if (!resumed || !hasWindowFocus() || page != Page.DECK || cardDeck == null) return;
+        TimerStore.Snapshot snapshot = timerSnapshot();
+        if (snapshot == null) return;
+        cardDeck.updatePreview("timer", timerPreview(snapshot));
+        if (snapshot.phase == TimerState.Phase.RUNNING) {
+            long delay = Math.max(25, Math.min(1000, snapshot.remainingMs % 1000 + 20));
+            controlsHandler.postDelayed(timerTick, delay);
+        }
+    }
 
     private void showApps() { showApps(""); }
 
@@ -731,13 +871,42 @@ public final class HomeActivity extends Activity {
         getSystemService(InputMethodManager.class).hideSoftInputFromWindow(getWindow().getDecorView().getWindowToken(), 0);
     }
 
+    private final class BackControl extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int tint;
+        BackControl(int tint) {
+            super(HomeActivity.this); this.tint = tint;
+            paint.setTypeface(RabbitTypography.regular(HomeActivity.this));
+            setContentDescription("Back"); setFocusable(true);
+            setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View view) { onBackPressed(); }
+            });
+        }
+        @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(info);
+            info.setClassName("android.widget.Button");
+        }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float s = screenScale(), y = getHeight() / 2f;
+            paint.setColor(tint); paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2.5f * s); paint.setStrokeCap(Paint.Cap.ROUND);
+            canvas.drawLine(48 * s, y, 66 * s, y, paint);
+            canvas.drawLine(48 * s, y, 56 * s, y - 8 * s, paint);
+            canvas.drawLine(48 * s, y, 56 * s, y + 8 * s, paint);
+            paint.setStyle(Paint.Style.FILL); paint.setTextSize(25 * s);
+            canvas.drawText("back", 74 * s, y + 8 * s, paint);
+        }
+    }
+
     private final class BatteryIcon extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        BatteryIcon(Context context) { super(context); }
+        private final int tint;
+        BatteryIcon(Context context, int tint) { super(context); this.tint = tint; }
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             float w = getWidth(), h = getHeight();
-            paint.setColor(WARM_WHITE); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(dp(1));
+            paint.setColor(tint); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(dp(1));
             canvas.drawRoundRect(1, 1, w - dp(3), h - 1, dp(2), dp(2), paint);
             paint.setStyle(Paint.Style.FILL);
             canvas.drawRect(w - dp(2), h * .3f, w, h * .7f, paint);
@@ -868,6 +1037,7 @@ public final class HomeActivity extends Activity {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
             if (quickSettings != null && quickSettings.handleWheel(up)) return true;
             if (recorderOverlay != null && recorderOverlay.handleWheel(up)) return true;
+            if (timerSetup != null && timerSetup.handleWheel(up)) return true;
             if (page == Page.IDLE || page == Page.HOME) {
                 showDeck(true);
                 getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
@@ -888,6 +1058,7 @@ public final class HomeActivity extends Activity {
             if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
                 if (quickSettings != null && quickSettings.handleSingle()) return true;
                 if (recorderOverlay != null && recorderOverlay.handleSingle()) return true;
+                if (timerSetup != null && timerSetup.handleSingle()) return true;
                 if (page == Page.HOME) showDeck(true); else activateSelection();
             }
             return true;
@@ -929,6 +1100,7 @@ public final class HomeActivity extends Activity {
         if (cameraScreen != null) { cameraScreen.onBackPressed(); return; }
         if (quickSettings.isVisible()) { quickSettings.dismiss(); return; }
         if (recorderOverlay.isVisible()) { recorderOverlay.abortAndDismiss(); showDeck(false); return; }
+        if (timerSetup != null && timerSetup.handleBack()) return;
         hideKeyboard(); savedSelection[page.ordinal()] = selection;
         if (page == Page.UTILITIES) showApps();
         else if (page == Page.DECK || page == Page.HOME) showHome();
@@ -949,6 +1121,8 @@ public final class HomeActivity extends Activity {
 
     private void openCamera() {
         if (cameraScreen != null) return;
+        controlsHandler.removeCallbacks(timerTick);
+        timerSetup = null;
         cameraReturnHome = page == Page.HOME || page == Page.IDLE;
         markOpened("camera");
         recorderOverlay.abortAndDismiss(); quickSettings.dismiss();

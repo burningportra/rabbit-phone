@@ -32,6 +32,11 @@ for the owner's device.
   note; the saved screen offers playback and the note library. Focus loss cancels
   an unfinished take, and the 60-second limit saves it automatically. The app has
   no Internet permission.
+- The timer is native: choose a preset or custom duration, then use its live card
+  to pause, resume, restart or cancel. The countdown persists across app restarts
+  and device reboot. Android delivers the completion alert using the existing
+  alarm sound and channel preferences, without changing media volume. One timer
+  runs at a time; starting another replaces it.
 - App list remains available; no packages removed or disabled.
 - **apps → Utilities → Rabbit theme** previews and explicitly applies or
   removes the matching Home-and-lock wallpaper. Android's real keyguard,
@@ -128,6 +133,10 @@ The app installer grants Camera and Microphone permission for the corresponding
 user-initiated features and sets **Rabbit Phone** as the default Home app. It also
 grants system-settings access for the explicit brightness slider, saving the
 previous grant in ignored `evidence/navigation-write-settings-before.json`.
+Timers add notification permission and exact-alarm access; the prior exact-alarm
+mode is saved in `evidence/timer-exact-alarm-before.json`. Missing alarm or
+notification access prevents a new timer from starting; recovery pauses an
+existing running timer when reliable alert scheduling is unavailable.
 Installation and opening quick settings do not change brightness or volume.
 The Assistant profile selects the permission-protected custom recorder as Android's
 assistant and changes long-press power from the power menu to that entry point.
@@ -154,12 +163,19 @@ The device checks exercise the visible UI and raw R1 wheel/power input paths:
 python3 scripts/verify_navigation.py --device-test
 python3 scripts/verify_navigation_camera.py --device-test
 python3 scripts/verify_quick_settings.py --device-test
+python3 scripts/verify_timer.py --device-test --reboot
+python3 scripts/verify_timer.py --device-test --access-recovery
 ```
 
 The camera check opens its preview without taking photos. The quick-settings
 check temporarily changes brightness and volume, verifies restart persistence,
-and restores its own changes. Neither test records or plays audio. Results and
-screenshots remain under ignored `evidence/`; existing notes are hash-checked.
+and restores its own changes. These navigation checks do not record or play notes. The full timer check sounds
+one short completion alert and, with `--reboot`, briefly restarts the R1; it refuses
+to overwrite an existing active timer. `--access-recovery` verifies wheel/button
+selection and alarm-access loss without sounding an alert. Results and
+screenshots remain under ignored `evidence/`; existing notes are hash-checked. The verifier discovers the R1 wheel device and
+checks its supported Linux input keys before injection: `KEY_UP` (103) and
+`KEY_DOWN` (108), not Android key-code numbers.
 See [navigation parity](docs/navigation-parity.md) for tested behavior and known
 stock-rabbitOS differences.
 

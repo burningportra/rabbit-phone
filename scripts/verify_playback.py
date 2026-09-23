@@ -52,6 +52,13 @@ def wheel_driver(device):
                  if line.endswith(' och1970_holl_key')), None)
     if name is None:
         raise RuntimeError('R1 wheel input driver not found')
+    # These are Linux input codes. Android key codes are a separate mapping.
+    capabilities = device.shell('cat', '/sys/class/input/' + name + '/device/capabilities/key')
+    bits = 0
+    for word in capabilities.split():
+        bits = (bits << 64) | int(word, 16)  # R1's aarch64 kernel uses 64-bit bitmap words.
+    if not all(bits & (1 << key) for key in (103, 108)):
+        raise RuntimeError('Unexpected R1 wheel key capabilities; verify before injecting events')
     return '/dev/input/' + name
 
 
@@ -64,7 +71,7 @@ def wheel_tick(device, key_code, wheel=None):
 
 
 def wheel_up(device, wheel=None):
-    wheel_tick(device, 115, wheel)  # Linux KEY_VOLUMEUP on the installed wheel mapping.
+    wheel_tick(device, 103, wheel)  # Linux KEY_UP reported by this R1 wheel.
 
 
 def wheel_down(device, wheel=None):

@@ -63,11 +63,48 @@ Camera releases. The legacy Camera Activity redirects into that screen. Camera's
 Back control returns to the stack; double press retains the original Home/stack
 return behavior. Focus loss and pause still release the input grab and camera.
 
+## Timer card in 0.7.0
+
+The official demo at 250–254 seconds shows a running five-minute timer as a
+blue card with a live countdown, duration caption and sparse cancel/pause
+controls. Its vertical envelope follows the catalog hand, so expanded cards now
+begin at the same normalized 190px top and use a 390px face, instead of jumping
+up under the clock. Timer digits and the two controls are rendered from real,
+persisted timer state. Preview updates preserve scrolling, touch tracking and
+accessibility focus; actions keep distinct identities across pause/resume/expiry
+so a stale Pause action cannot become Restart.
+
+The [official timer guide](https://www.rabbit.tech/support/article/rabbit-smart-timers)
+confirms preset choices, custom duration through a plus control, and one active
+timer with replacement. The footage and guide do not show the preset menu or
+custom editor. The six preset values and hours/minutes/seconds editor remain
+local design choices, not verified visual replicas. Wheel selection and the side
+button operate the editor without a second window.
+
+The running countdown uses elapsed time; a wall-clock anchor and boot counter
+restore it across reboot. An atomic private state file and generation-bound
+alarms keep replaced or canceled timers from firing. The non-exported receiver
+posts the existing Android alarm sound/channel notification once. There is no
+background input grab, foreground service, permanent wakelock or volume override.
+Starting/resuming requires notification and exact-alarm access; a failed start
+leaves the prior timer intact. Lost scheduling access pauses the recovered timer
+until the user restores access and resumes it.
+
+`scripts/verify_timer.py --device-test --reboot` verifies a live five-minute card,
+pause/resume, persistence, custom duration, background completion, notification
+cleanup, permission denial, and recovery after an actual reboot. The checks use
+visible controls and the R1's raw input driver, never a timer-start test intent.
+The pure model has 15 test groups for elapsed sleep, wall-clock edits, reboot,
+state transitions, stale expiry and notification deduplication. The separate
+`--access-recovery` run checks the selected preset through wheel/PTT, permission
+revocation during a running timer, and swipe cancellation. Local receipts stay
+under ignored `evidence/timer/`.
+
 ## Remaining differences from Rabbit firmware
 
 This is a working reference-based navigation implementation, not a verified
-one-to-one firmware replica. Expanded cards currently show category art rather
-than live app content; the mascot and glyphs are original vector approximations.
+one-to-one firmware replica. The timer now shows real countdown state and inline controls; other expanded
+cards still show category art instead of live app content; the mascot and glyphs are original vector approximations.
 Android feature screens retain their own contents and controls. The keyboard
 shortcut searches installed apps, and Rabbit cloud cards link to their public
 service instead of fabricating account-backed results. Hold-to-record remains
@@ -81,6 +118,6 @@ the transient overlay settles. Device tests distinguish those cases. Android's
 describes this temporary overlap in immersive apps. No privacy indicator,
 keyguard or system input protection is disabled.
 
-The one-to-one goal remains open for live card previews and the remaining visual
-and feature-screen differences. Passing the navigation checks does not close
+The one-to-one goal remains open for the other live card previews, exact setup
+screens, and the remaining visual and feature-screen differences. Passing the navigation checks does not close
 those gaps.

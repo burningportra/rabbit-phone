@@ -6,11 +6,14 @@ import android.content.Intent;
 /** Stable quick-navigation contract consumed by every in-app navigation surface. */
 public final class NavigationIntents {
     public static final String EXTRA_DESTINATION = "com.kevtrinh.rabbitphone.DESTINATION";
+    public static final String ACTION_OPEN_TIMER = "com.kevtrinh.rabbitphone.OPEN_TIMER";
     public static final String ACTION_OPEN_CAMERA = "com.kevtrinh.rabbitphone.OPEN_CAMERA";
     public static final String ACTION_OPEN_KEYBOARD = "com.kevtrinh.rabbitphone.OPEN_KEYBOARD";
     public static final String ACTION_OPEN_SETTINGS = "com.kevtrinh.rabbitphone.OPEN_SETTINGS";
 
     private NavigationIntents() { }
+
+    public static Intent timer(Context context) { return homeAction(context, ACTION_OPEN_TIMER); }
 
     public static Intent camera(Context context) { return homeAction(context, ACTION_OPEN_CAMERA); }
 
