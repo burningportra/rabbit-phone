@@ -64,7 +64,7 @@ public final class HomeActivity extends Activity {
     private static final int DARK_INK = Color.rgb(22, 18, 14);
     private static final int CARD = Color.rgb(27, 27, 24);
 
-    private enum Page { HOME, DECK, APPS, UTILITIES, SETTINGS, KEYBOARD, FEATURE, CAMERA, TIMER_SETUP, TRANSLATOR, IDLE }
+    private enum Page { HOME, DECK, APPS, UTILITIES, SETTINGS, KEYBOARD, FEATURE, CAMERA, TIMER_SETUP, TRANSLATOR, GALLERY, IDLE }
 
     private static final class Entry {
         final String id;
@@ -249,6 +249,7 @@ public final class HomeActivity extends Activity {
     @Override
     protected void onPause() {
         resumed = false;
+        if (hardwarePage != null) hardwarePage.setHostActive(false);
         cancelCardTransition(true);
         controlsHandler.removeCallbacks(timerTick);
         if (cameraScreen != null) cameraScreen.onPause();
@@ -271,7 +272,10 @@ public final class HomeActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
-        if (!focused) cancelCardTransition(true);
+        if (!focused) {
+            if (hardwarePage != null) hardwarePage.setHostActive(false);
+            cancelCardTransition(true);
+        }
         if (focused && pendingReturnCard != null) {
             String id = pendingReturnCard; pendingReturnCard = null; returnFromFeature(id);
         }
@@ -290,6 +294,7 @@ public final class HomeActivity extends Activity {
         cancelCardTransition(false);
         controlsHandler.removeCallbacks(timerTick);
         releaseCameraScreen();
+        setHardwarePage(null);
         if (recorderOverlay != null) recorderOverlay.release();
         if (quickSettings != null) quickSettings.release();
         super.onDestroy();
@@ -438,8 +443,8 @@ public final class HomeActivity extends Activity {
         addCard("gallery", "magic gallery", 0xff1af6ff, NavigationCard.Glyph.GALLERY,
                 new Runnable() {
                     @Override public void run() {
-                        if (launchPackage("com.dot.gallery", new Intent(Intent.ACTION_VIEW).setType("image/*"),
-                                "No gallery is installed")) visitFeature("gallery");
+                        visitFeature("gallery");
+                        showGallery();
                     }
                 });
         addCard("timer", "timer", 0xff6b63ff, NavigationCard.Glyph.TIMER,
@@ -573,7 +578,7 @@ public final class HomeActivity extends Activity {
     private void installPage(View content, boolean home) {
         if (cardTransition != null && !cardTransition.isRevealing()) cancelCardTransition(false);
         controlsHandler.removeCallbacks(timerTick);
-        if (page != Page.TIMER_SETUP && page != Page.TRANSLATOR) hardwarePage = null;
+        if (page != Page.TIMER_SETUP && page != Page.TRANSLATOR && page != Page.GALLERY) setHardwarePage(null);
         releaseCameraScreen();
         navigationSurface = new NavigationSurface(this); navigationSurface.setHome(home);
         navigationSurface.setListener(new NavigationSurface.Listener() {
@@ -596,6 +601,7 @@ public final class HomeActivity extends Activity {
         if (navigationSurface != null) navigationSurface.setHome(page == Page.HOME && !modal);
         if (cardDeck != null) cardDeck.setEnabled(!modal);
         if (hardwarePage != null) {
+            hardwarePage.setHostActive(resumed && hasWindowFocus());
             hardwarePage.getView().setEnabled(!modal);
             hardwarePage.getView().setImportantForAccessibility(modal ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         }
@@ -704,6 +710,25 @@ public final class HomeActivity extends Activity {
         else updateSurfaceMode();
     }
 
+    private void setHardwarePage(HardwarePage next) {
+        HardwarePage previous = hardwarePage;
+        hardwarePage = next;
+        if (previous != null && previous != next) previous.release();
+    }
+
+    private void showGallery() {
+        activeFeatureId = "gallery";
+        page = Page.GALLERY;
+        homeVisual = null; cardDeck = null; scrollView = null;
+        visibleEntries.clear(); selectableViews.clear();
+        clockView = dateView = statusView = null;
+        FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
+        setHardwarePage(new GalleryView(this));
+        root.addView(hardwarePage.getView(), new FrameLayout.LayoutParams(-1, -1));
+        root.addView(cardStatusHeader(true, 0xff25c8ed), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
+        installPage(root, false); updateClock(); updateStatus();
+    }
+
     private void showTranslator() {
         activeFeatureId = "translator";
         page = Page.TRANSLATOR;
@@ -711,7 +736,7 @@ public final class HomeActivity extends Activity {
         visibleEntries.clear(); selectableViews.clear();
         clockView = dateView = statusView = null;
         FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
-        hardwarePage = new TranslatorSetupView(this, new TranslatorSetupView.Host() {
+        setHardwarePage(new TranslatorSetupView(this, new TranslatorSetupView.Host() {
             @Override public void onContinue(String source, String target) {
                 if (!resumed || !hasWindowFocus()) return;
                 Uri destination = Uri.parse("https://translate.google.com/").buildUpon()
@@ -719,7 +744,7 @@ public final class HomeActivity extends Activity {
                         .appendQueryParameter("op", "translate").build();
                 launchIntent(new Intent(Intent.ACTION_VIEW, destination), "No translation browser is available");
             }
-        });
+        }));
         root.addView(hardwarePage.getView(), new FrameLayout.LayoutParams(-1, -1));
         root.addView(cardStatusHeader(true, 0xff02f719), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
         installPage(root, false); updateClock(); updateStatus();
@@ -771,7 +796,7 @@ public final class HomeActivity extends Activity {
         visibleEntries.clear(); selectableViews.clear();
         clockView = dateView = statusView = null;
         FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
-        hardwarePage = new TimerSetupView(this, new TimerSetupView.Host() {
+        setHardwarePage(new TimerSetupView(this, new TimerSetupView.Host() {
             @Override public void onStart(long durationMillis) {
                 if (!resumed || !hasWindowFocus()) return;
                 try {
@@ -782,7 +807,7 @@ public final class HomeActivity extends Activity {
                     showError(error.getMessage() == null ? "Timer couldn't start" : error.getMessage());
                 }
             }
-        });
+        }));
         root.addView(hardwarePage.getView(), new FrameLayout.LayoutParams(-1, -1));
         root.addView(cardStatusHeader(true, 0xff6b63ff), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
         installPage(root, false); updateClock(); updateStatus();
@@ -1260,7 +1285,7 @@ public final class HomeActivity extends Activity {
         if (cardTransition != null && !cardTransition.isRevealing()) cancelCardTransition(true);
         if (cameraScreen != null) return;
         controlsHandler.removeCallbacks(timerTick);
-        hardwarePage = null;
+        setHardwarePage(null);
         cameraReturnHome = page == Page.HOME || page == Page.IDLE;
         visitFeature("camera");
         recorderOverlay.abortAndDismiss(); quickSettings.dismiss();

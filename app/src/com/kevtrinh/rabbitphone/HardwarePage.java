@@ -8,4 +8,6 @@ public interface HardwarePage {
     boolean handleWheel(boolean up);
     boolean handleSingle();
     boolean handleBack();
+    default void setHostActive(boolean active) { }
+    default void release() { }
 }

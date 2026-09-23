@@ -31,6 +31,10 @@ for the owner's device.
 - The translator card opens a native language-pair setup screen. Its local chooser
   stores the pair; **Continue** opens Google Translate and does not claim to run
   Rabbit's translation backend.
+- The Magic Gallery card opens a native local-photo gallery with a cyan header,
+  Favorites row and three-column thumbnail overview. It reads only this app's
+  original Camera photos from `Pictures/Rabbit Phone`; it has no storage
+  permission, Internet access, cloud gallery, or magic/original-photo toggle.
 - Holding the side button opens a reel-to-reel recorder inspired by Rabbit's
   Magic Recorder: red rotating reels, a real microphone level meter, elapsed
   timer and Power Grotesk type. Release saves a private voice
@@ -191,6 +195,8 @@ python3 scripts/verify_quick_settings.py --device-test
 python3 scripts/verify_timer.py --device-test --reboot
 python3 scripts/verify_timer.py --device-test --access-recovery
 python3 scripts/verify_recorder_navigation.py --device-test
+python3 scripts/build_gallery_harness.py
+python3 scripts/verify_gallery.py --device-test
 ```
 
 The card-flow check exercises Translator's language picker and the Translator,
@@ -205,12 +211,16 @@ screenshots remain under ignored `evidence/`; existing notes are hash-checked. T
 checks its supported Linux input keys before injection: `KEY_UP` (103) and
 `KEY_DOWN` (108), not Android key-code numbers.
 
-`verify_active_cards.py` creates and pauses its own timer, checks its geometry,
-catalog order and restart recovery, then cancels only that owned timer. It refuses
-to alter an existing timer. `verify_recorder_navigation.py` verifies the library,
-silent detail opening, duration metadata, explicit muted playback and volume
-persistence with a generated silent fixture. The fixture is removed only after
-its hash matches; original notes and volume are preserved.
+The earlier active-card and recorder fixture checks create only owned test data,
+then cancel or remove it after checksum cleanup; original notes and volume remain
+preserved. Their receipts are historical evidence and do not prove current v0.10
+Gallery behavior.
+
+The Gallery verifier passes 26 device checks. Its separate, same-signer
+instrumentation APK creates three deterministic PNG fixtures, hashes
+the existing camera photos, tests only fixture favorites and deletion, checks
+generation/metadata guards and cleanup, then uninstalls itself. Production has no
+debug fixture entry point.
 See [navigation parity](docs/navigation-parity.md) for tested behavior and known
 stock-rabbitOS differences.
 
@@ -251,6 +261,8 @@ available. The app reconnects while foreground after the helper returns.
 ![Reel-to-reel recording screen](docs/recorder.png)
 
 ![Local note detail using a generated silent test fixture](docs/recorder-detail.png)
+
+![Native gallery showing a generated test image](docs/gallery.png)
 
 See [validation](docs/validation.md), [theme and typography](docs/theme.md),
 [verified Android base](docs/base-system.md), [hardware protocol](hardware/README.md), and

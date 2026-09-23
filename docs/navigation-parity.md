@@ -88,29 +88,15 @@ with the note's actual duration and Play/Stop; Back returns to the library and
 keeps the existing media-volume setting. The existing recording and saved reel
 states are unchanged.
 
-`scripts/verify_recorder_navigation.py --device-test` passes 17 checks on the R1.
-It uses a 20-second generated silent fixture to verify silent detail opening,
-real duration metadata, explicit muted Play/Stop, wheel/button Back, Plus/Ready,
-volume persistence after restart, and exact cleanup. All original notes remain
-unchanged. The recorder owns its modal accessibility flags; the card transition
-releases and reacquires its flags across same-parent reveal so underlying cards
-remain hidden until Recorder closes. Independent source review and the device's
-compressed accessibility tree verify this ownership.
+The v0.9 device pass verified 17 Recorder checks, 20 active-card checks,
+22 general navigation checks and 15 transition/interruption checks. It covered
+silent note-detail opening, explicit muted fixture playback, volume persistence,
+task-owned card order, timer recovery and modal accessibility restoration. The
+new Gallery has its own verification below.
 
-`scripts/verify_active_cards.py --device-test` passes 20 checks, including the
-settled timer/cue bounds, exclusion of hidden accessibility nodes, stable
-catalog order after feature visits, and recovery of the real paused timer after
-app restart. Only its owned timer is canceled; saved notes and volume remain
-unchanged. The upgrade also removed an observed legacy recent-card cache.
-
-The v0.9 general navigation check passes 22 checks. The card-flow interruption
-check passes 15, including cancellation after Recorder has appeared but before
-the final fade completes, restoration of the underlying deck's accessibility,
-and disabled animations. The original animation setting is restored afterward.
-
-The recording header's Back action now uses the existing cancellation path,
-which clears the unfinished take before dismissing the overlay. This pass did
-not record microphone audio; its device playback checks use generated silence.
+The recording header's Back action uses the existing cancellation path, which
+clears an unfinished take before dismissing the overlay. The recorder
+navigation check uses generated silence rather than microphone audio.
 
 Earlier `scripts/verify_card_flows.py --device-test --interruptions` receipts
 also covered:
@@ -123,9 +109,7 @@ claim. Reference-aligned spacing is also inspected through device screenshots.
 
 The general navigation verifier passed all 21 checks and the camera verifier
 passed all 15, including Camera Back returning Home with a fresh input lease.
-Those historical receipts do not prove the v0.9 active-card geometry, catalog
-policy, transition modality, overlay accessibility, or recorder-navigation
-changes. The README screenshot shows the app's native fallback artwork; the
+Those earlier receipts are separate from the v0.9 and Gallery checks above. The README screenshot shows the app's native fallback artwork; the
 optional official PNG and all raw device evidence remain outside Git.
 
 ## Historical connected-R1 receipts (0.6.0–0.8.0)
@@ -191,13 +175,56 @@ state transitions, stale expiry and notification deduplication. The separate
 revocation during a running timer, and swipe cancellation. Local receipts stay
 under ignored `evidence/timer/`.
 
+## Native Gallery in v0.10
+
+The official demo shows Magic Gallery opening from the cyan card at 264–265
+seconds into a black overview by 266 seconds: cyan Back/status/header treatment,
+a **favorites** row, and three visible thumbnails. The local NativeGallery
+mirrors that overview. Its viewer returns to the originating collection; the
+Favorites row returns to the gallery, and the root Back path follows the feature
+return to the card/Home sequence. Wheel moves grid selection and the viewer's
+previous/next image; PTT opens the selected image in the grid and toggles
+Favorites in the viewer. Those hardware mappings are explicit local choices.
+
+NativeGallery reads only MediaStore originals created by this package under
+`Pictures/Rabbit Phone`. It requests no storage permission, Internet permission,
+or cloud AI. Favorites use the real persisted `IS_FAVORITE` metadata. Delete
+stays in-window, defaults to Cancel, and changes only after explicit
+confirmation; metadata, generation and version guards prevent stale callbacks
+from deleting or altering a newer item. Decode, caching, observer updates and
+focus lifecycle work are bounded and asynchronous.
+
+Rabbit's [Magic Gallery guide](https://www.rabbit.tech/support/article/rabbit-magic-gallery)
+documents thumbnail selection, scrolling, favorites, magic/original toggling and
+deletion, but the official demo does not show the viewer layout. This app does
+not offer stock magic/original toggling or cloud sync, and uses an honest local
+viewer arrangement for the unshown detail UI.
+
+`scripts/build_gallery_harness.py` builds a separate same-signer instrumentation
+APK. `scripts/verify_gallery.py --device-test` uses it to create three
+deterministic PNG fixtures, hash production photos before the run, exercise only
+known fixture favorite/delete operations, verify checksum/generation cleanup,
+and uninstall the test APK. Production exposes no debug fixture entry point.
+The Gallery pass verifies 26 checks, including rendered thumbnail pixels,
+wheel/PTT browsing, favorite persistence, Cancel-default deletion, and cancellation
+on focus loss or Quick Settings. The two existing photos are hash-identical after
+cleanup; all ten notes, media volume and timer state are preserved. A separate
+Home→Gallery→Home check confirms one continuous hardware lease. The README image
+shows only a generated fixture; personal-photo overview captures stay ignored.
+
+The device pass caught two framework-state regressions: replacing GridView's
+layout parameters detached the first tile from input/accessibility, and restoring
+prompt children to AUTO hid the static caption. The implementation preserves the
+framework-owned layout object and restores each view's original accessibility
+flag; the same device checks now cover both paths.
+
 ## Remaining differences from Rabbit firmware
 
 This is a working reference-based navigation implementation, not a verified
 one-to-one firmware replica. The timer now shows real countdown state and inline
 controls; ordinary feature cards are catalog entries rather than live previews.
-Remaining native feature pages include Magic Gallery and other app-specific
-surfaces. The default mascot and glyphs are original static renderings, not an
+Magic Gallery is now a native local page; other app-specific feature surfaces
+remain. The default mascot and glyphs are original static renderings, not an
 idle 3D Rabbit animation. The owner can optionally install the pinned official
 public mascot PNG privately with `scripts/install_mascot.py`; it is not bundled
 or published with the app. Android feature screens retain their own contents and

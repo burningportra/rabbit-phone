@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.kevtrinh.rabbitphone.gallerytest" android:versionCode="1" android:versionName="1">
+    <application android:label="Rabbit Gallery Verification" android:allowBackup="false" />
+    <instrumentation android:name=".GalleryFixtures"
+        android:targetPackage="com.kevtrinh.rabbitphone" android:functionalTest="true" />
+</manifest>
