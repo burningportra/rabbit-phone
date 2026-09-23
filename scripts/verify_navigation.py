@@ -105,6 +105,7 @@ def main():
         for _ in range(20):
             ui = dump_ui(device)
             if selected(ui).startswith('recorder,'):
+                recorder_position = re.search(r'card (\d+) of (\d+)', selected(ui)).groups()
                 click_power()
                 break
             wheel_down(device, wheel)
@@ -113,18 +114,21 @@ def main():
         ui = screen('recorder-library')
         receipt('raw_side_opens_selected_recorder_card', 'Voice recorder' in ui and 'Media volume' in ui)
         receipt('library_does_not_record', not device.microphone_active())
+        receipt('recorder_hides_underlying_cards_from_accessibility', not selected(ui))
         swipe(240, 12, 240, 245)
         receipt('recorder_top_edge_quick_settings', 'Quick settings' in screen('recorder-quick-settings'))
         device.shell('input', 'keyevent', 'KEYCODE_BACK')
         swipe(240, 622, 240, 395)
         receipt('recorder_bottom_edge_returns_home', 'Rabbit home.' in screen('recorder-home'))
         wheel_down(device)
-        ui = screen('opened-recorder')
-        receipt('opened_card_is_promoted', selected(ui).startswith('recorder,') and 'active' in selected(ui))
+        ui = screen('visited-recorder')
+        receipt('visited_feature_stays_in_catalog', selected(ui).startswith('recorder,') and 'active' not in selected(ui)
+                and re.search(r'card (\d+) of (\d+)', selected(ui)).groups() == recorder_position)
         swipe(340, 240, 12, 240)
-        ui = screen('dismissed-recorder')
-        receipt('left_swipe_dismisses_active_card', 'recorder, active' not in ui)
-        receipt('dismiss_keeps_saved_notes', device.notes() == original_notes)
+        ui = screen('catalog-recorder-swipe')
+        receipt('left_swipe_keeps_permanent_feature_card', selected(ui).startswith('recorder,')
+                and re.search(r'card (\d+) of (\d+)', selected(ui)).groups() == recorder_position)
+        receipt('catalog_swipe_keeps_saved_notes', device.notes() == original_notes)
     finally:
         result['microphone_remained_off'] = not device.microphone_active()
         result['saved_notes_unchanged'] = device.notes() == original_notes

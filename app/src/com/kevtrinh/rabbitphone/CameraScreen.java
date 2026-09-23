@@ -520,6 +520,7 @@ public final class CameraScreen implements SurfaceHolder.Callback {
             return;
         }
         if (recorderOverlay != null && recorderOverlay.isVisible()) {
+            if (recorderOverlay.handleBack()) return;
             recorderOverlay.abortAndDismiss();
             return;
         }

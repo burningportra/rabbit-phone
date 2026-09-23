@@ -16,12 +16,16 @@ import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.BatteryManager;
+import android.text.format.DateFormat;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.PathInterpolator;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -32,9 +36,12 @@ import android.widget.TextView;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.IdentityHashMap;
+import java.util.Map;
 
 /** Same-window recorder and voice-note library shared by Home and Camera. */
 public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
@@ -53,6 +60,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     private static final int DARK_INK = Color.rgb(22, 18, 14);
     private static final int RECORD_RED = Color.rgb(255, 22, 69);
     private static final TimeInterpolator EASE_OUT = new PathInterpolator(.23f, 1f, .32f, 1f);
+    private enum PageMode { OTHER, LIBRARY, DETAIL, READY_FROM_LIBRARY }
 
     private final Activity activity;
     private final Host host;
@@ -61,6 +69,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ArrayList<View> actionViews = new ArrayList<View>();
     private final ArrayList<Runnable> actions = new ArrayList<Runnable>();
+    private final IdentityHashMap<View, Integer> siblingAccessibility = new IdentityHashMap<View, Integer>();
     private final Runnable meterTick = new Runnable() {
         @Override public void run() {
             if (!notes.isRecording() || root == null) return;
@@ -73,7 +82,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     };
     private final Runnable playbackTick = new Runnable() {
         @Override public void run() {
-            if (root == null || !showingSaved || !notes.isPlaying(savedFile)) return;
+            if (root == null || (!showingSaved && pageMode != PageMode.DETAIL) || !notes.isPlaying(savedFile)) return;
             long position = notes.playbackPositionMillis();
             long duration = notes.playbackDurationMillis();
             setTimer(position);
@@ -85,6 +94,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         @Override public void run() {
             if (root == null || volumeLabel == null) return;
             updateVolumeLabel();
+            updateLibraryHeader();
             main.postDelayed(this, 500L);
         }
     };
@@ -101,6 +111,13 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     private int selectedAction;
     private boolean ownsKeepScreenOn;
     private boolean showingSaved;
+    private PageMode pageMode = PageMode.OTHER;
+    private boolean navigating;
+    private int pageGeneration;
+    private int librarySelection = 2;
+    private int libraryScrollY;
+    private TextView headerTime;
+    private RecorderBattery headerBattery;
 
     public VoiceRecorderOverlay(Activity activity, Host host) {
         if (activity == null || host == null) {
@@ -119,9 +136,13 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     /** Opens without microphone access while an assistant hold is being handed off. */
     public void showReady() {
         if (notes.isRecording()) return;
+        boolean fromLibrary = pageMode == PageMode.LIBRARY || pageMode == PageMode.READY_FROM_LIBRARY;
+        if (pageMode == PageMode.LIBRARY) rememberLibraryPosition();
+        stopPlaybackForNavigation();
         attach();
         beginPage();
         if (page == null) return;
+        pageMode = fromLibrary ? PageMode.READY_FROM_LIBRARY : PageMode.OTHER;
         addDeckHeader("ready", MUTED);
         addTimer(0, MUTED);
         addDeck(TapeDeckView.Mode.READY, 0, 0);
@@ -149,7 +170,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         }
         // Playback callbacks are synchronous; finish them before constructing the
         // recording screen so they cannot replace its meter and timer.
-        notes.stopPlayback();
+        stopPlaybackForNavigation();
         attach();
         renderRecording();
         if (!notes.start()) return false;
@@ -163,9 +184,37 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     public void showLibrary() {
         if (notes.isRecording()) return;
-        notes.stopPlayback();
+        stopPlaybackForNavigation();
         attach();
         renderLibrary();
+    }
+
+    /** Detail and the library's Plus destination return within this same overlay/window. */
+    public boolean handleBack() {
+        if (!isVisible() || (pageMode != PageMode.DETAIL && pageMode != PageMode.READY_FROM_LIBRARY)) return false;
+        showLibrary();
+        return true;
+    }
+
+    private void backFromUser() { if (!handleBack()) closeFromUser(); }
+
+    private void stopPlaybackForNavigation() {
+        navigating = true;
+        try { notes.stopPlayback(); } finally { navigating = false; }
+    }
+
+    private void rememberLibraryPosition() {
+        librarySelection = selectedAction;
+        libraryScrollY = actionScroll == null ? 0 : actionScroll.getScrollY();
+    }
+
+    private void openDetail(File file) {
+        if (pageMode != PageMode.LIBRARY || !isVisible()) return;
+        rememberLibraryPosition();
+        stopPlaybackForNavigation();
+        savedFile = file;
+        savedDuration = notes.durationMillis(file);
+        renderDetail();
     }
 
     public boolean handleSingle() {
@@ -203,7 +252,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         main.removeCallbacks(playbackTick);
         main.removeCallbacks(volumeTick);
         notes.cancel();
-        notes.stopPlayback();
+        stopPlaybackForNavigation();
         dismiss();
     }
 
@@ -231,6 +280,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     @Override public void onResult(VoiceNotes.Result result) {
         if (result.isSaved()) {
+            librarySelection = 2; libraryScrollY = 0;
             savedFile = result.file;
             savedDuration = result.durationMillis;
             attach();
@@ -245,8 +295,11 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     }
 
     @Override public void onPlaybackChanged(File note, boolean playing) {
-        if (!isVisible()) return;
-        if (savedFile != null && savedFile.equals(note)) {
+        if (!isVisible() || navigating) return;
+        if (pageMode == PageMode.DETAIL && savedFile != null && savedFile.equals(note)) {
+            if (playing && notes.playbackDurationMillis() > 0) savedDuration = notes.playbackDurationMillis();
+            renderDetail();
+        } else if (savedFile != null && savedFile.equals(note)) {
             renderSaved(playing ? "Playing voice note" : "Voice note saved");
         } else {
             renderLibrary();
@@ -260,7 +313,15 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             host.onRecorderMessage("Recorder screen isn't available");
             return;
         }
-        root = new FrameLayout(activity);
+        root = new FrameLayout(activity) {
+            @Override protected void onDetachedFromWindow() {
+                super.onDetachedFromWindow();
+                if (root == this) {
+                    root = null; // Parent removal already owns detachment; do not remove it twice.
+                    abortAndDismiss();
+                }
+            }
+        };
         root.setBackgroundColor(BG);
         root.setClickable(true);
         root.setFocusable(true);
@@ -271,16 +332,25 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         });
         content.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        for (int i = 0; i < content.getChildCount(); i++) {
+            View sibling = content.getChildAt(i);
+            if (sibling == root) continue;
+            siblingAccessibility.put(sibling, sibling.getImportantForAccessibility());
+            sibling.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        }
         root.bringToFront();
         root.requestFocus();
     }
 
     private void beginPage() {
         if (root == null) return;
+        pageGeneration++;
         main.removeCallbacks(playbackTick);
         stopDeck();
         for (View view : actionViews) view.animate().cancel();
         showingSaved = false;
+        pageMode = PageMode.OTHER;
+        headerTime = null; headerBattery = null;
         main.removeCallbacks(volumeTick);
         volumeLabel = null;
         volumeError = null;
@@ -377,20 +447,25 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     }
 
     private void renderLibrary() {
-        boolean preserveSelection = actionScroll != null;
-        int previousSelection = selectedAction;
+        if (pageMode == PageMode.LIBRARY) rememberLibraryPosition();
         beginPage();
         if (page == null) return;
+        pageMode = PageMode.LIBRARY;
+        setLibraryPadding();
         savedFile = null;
         savedDuration = 0L;
-        TextView title = text("‹ voice notes", 32, WHITE, Typeface.NORMAL);
-        title.setContentDescription("Back");
-        title.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View view) { closeFromUser(); }
-        });
-        page.addView(title, new LinearLayout.LayoutParams(-1, dp(52)));
-        TextView subtitle = text("Saved privately on this Rabbit", 14, MUTED, Typeface.NORMAL);
-        page.addView(subtitle, new LinearLayout.LayoutParams(-1, dp(38)));
+        addLibraryHeader();
+        LinearLayout heading = new LinearLayout(activity);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = referenceText("recorder", 44, RECORD_RED);
+        GlyphDrawable mark = new GlyphDrawable(Glyph.RECORDER);
+        mark.setColor(RECORD_RED); mark.setBounds(0, 0, px(30), px(30));
+        title.setCompoundDrawables(mark, null, null, null); title.setCompoundDrawablePadding(px(10));
+        heading.addView(title, new LinearLayout.LayoutParams(0, -1, 1f));
+        PlainControl add = new PlainControl("+", "New voice note", 42, WHITE);
+        heading.addView(add, new LinearLayout.LayoutParams(dp(44), -1));
+        registerAction(add, new Runnable() { @Override public void run() { showReady(); } });
+        page.addView(heading, new LinearLayout.LayoutParams(-1, px(66)));
 
         actionScroll = new ScrollView(activity);
         actionScroll.setFillViewport(true);
@@ -404,39 +479,124 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             empty.setGravity(Gravity.CENTER_VERTICAL);
             rows.addView(empty, new LinearLayout.LayoutParams(-1, dp(160)));
         } else {
-            final SimpleDateFormat format = new SimpleDateFormat(
-                    "EEE, MMM d  ·  h:mm:ss a", Locale.getDefault());
             for (final File file : files) {
                 addLibraryAction(rows,
-                        format.format(new Date(file.lastModified())),
-                        notes.isPlaying(file) ? "Playing · select to stop" : "Select to play",
+                        "Voice note", noteListDate(file), noteDate(file),
                         new Runnable() {
-                            @Override public void run() {
-                                if (notes.isPlaying(file)) notes.stopPlayback();
-                                else notes.play(file);
-                            }
+                            @Override public void run() { openDetail(file); }
                         });
             }
         }
         actionScroll.addView(rows, new ScrollView.LayoutParams(-1, -2));
         page.addView(actionScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
-        addAction("Done", false, new Runnable() {
-            @Override public void run() { closeFromUser(); }
-        });
         addVolumeControls();
-        if (preserveSelection) {
-            selectedAction = Math.max(0, Math.min(actions.size() - 1, previousSelection));
-        }
+        selectedAction = Math.max(0, Math.min(actions.size() - 1, files.isEmpty() ? 1 : librarySelection));
         applySelection(false);
+        final ScrollView scroll = actionScroll;
+        scroll.post(new Runnable() { @Override public void run() {
+            if (actionScroll == scroll && pageMode == PageMode.LIBRARY) scroll.scrollTo(0, libraryScrollY);
+        } });
     }
+
+    private void renderDetail() {
+        boolean preserveSelection = pageMode == PageMode.DETAIL;
+        int previousSelection = selectedAction;
+        beginPage();
+        if (page == null || savedFile == null) return;
+        pageMode = PageMode.DETAIL;
+        page.setContentDescription("Voice note details");
+        setLibraryPadding();
+        addLibraryHeader();
+        TextView title = referenceText("Voice note", 44, WHITE);
+        page.addView(title, new LinearLayout.LayoutParams(-1, px(70)));
+        TextView date = referenceText(noteDate(savedFile), 22, MUTED);
+        page.addView(date, new LinearLayout.LayoutParams(-1, px(48)));
+        TextView duration = referenceText(savedDuration < 0 ? "Duration unavailable" : "Duration " + formatDuration(savedDuration), 23, RECORD_RED);
+        page.addView(duration, new LinearLayout.LayoutParams(-1, px(40)));
+        addSpacer();
+        final boolean playing = notes.isPlaying(savedFile);
+        LinearLayout transport = new LinearLayout(activity);
+        transport.setGravity(Gravity.CENTER_VERTICAL);
+        PlainControl play = new PlainControl(playing ? "■" : "▶", playing ? "Stop" : "Play", 36, WHITE);
+        transport.addView(play, new LinearLayout.LayoutParams(dp(56), -1));
+        registerAction(play, new Runnable() { @Override public void run() {
+            if (pageMode != PageMode.DETAIL || savedFile == null) return;
+            if (notes.isPlaying(savedFile)) notes.stopPlayback(); else notes.play(savedFile);
+        } });
+        timer = referenceText(formatDuration(playing ? notes.playbackPositionMillis() : 0), 32, WHITE);
+        timer.setFontFeatureSettings("tnum");
+        timer.setGravity(Gravity.CENTER_VERTICAL);
+        transport.addView(timer, new LinearLayout.LayoutParams(0, -1, 1f));
+        page.addView(transport, new LinearLayout.LayoutParams(-1, dp(64)));
+        addVolumeControls();
+        selectedAction = preserveSelection ? Math.max(0, Math.min(actions.size() - 1, previousSelection)) : 1;
+        applySelection(false);
+        if (playing) main.post(playbackTick);
+    }
+
+    private void setLibraryPadding() { page.setPadding(px(48), px(42), px(48), px(18)); }
+
+    private String noteDate(File file) {
+        return new SimpleDateFormat("MMM d, yyyy · h:mm:ss a", Locale.getDefault()).format(new Date(file.lastModified()));
+    }
+
+    private String noteListDate(File file) {
+        Calendar note = Calendar.getInstance(); note.setTimeInMillis(file.lastModified());
+        Calendar day = Calendar.getInstance();
+        String prefix;
+        if (note.get(Calendar.YEAR) == day.get(Calendar.YEAR)
+                && note.get(Calendar.DAY_OF_YEAR) == day.get(Calendar.DAY_OF_YEAR)) prefix = "Today";
+        else {
+            day.add(Calendar.DAY_OF_YEAR, -1);
+            if (note.get(Calendar.YEAR) == day.get(Calendar.YEAR)
+                    && note.get(Calendar.DAY_OF_YEAR) == day.get(Calendar.DAY_OF_YEAR)) prefix = "Yesterday";
+            else prefix = new SimpleDateFormat(note.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR)
+                    ? "MMM d" : "MMM d, yyyy", Locale.getDefault()).format(note.getTime());
+        }
+        return prefix + " · " + new SimpleDateFormat("h:mm a", Locale.getDefault()).format(note.getTime());
+    }
+
+    private void addLibraryHeader() {
+        FrameLayout header = new FrameLayout(activity);
+        PlainControl back = new PlainControl("‹ back", pageMode == PageMode.DETAIL ? "Back to recordings" : "Back", 24, RECORD_RED);
+        back.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(back, new FrameLayout.LayoutParams(px(118), -1, Gravity.LEFT));
+        registerAction(back, new Runnable() { @Override public void run() { backFromUser(); } });
+        headerTime = referenceText("", 24, RECORD_RED);
+        headerTime.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams time = new FrameLayout.LayoutParams(px(112), -1, Gravity.CENTER);
+        header.addView(headerTime, time);
+        headerBattery = new RecorderBattery();
+        header.addView(headerBattery, new FrameLayout.LayoutParams(px(32), px(18), Gravity.RIGHT | Gravity.CENTER_VERTICAL));
+        page.addView(header, new LinearLayout.LayoutParams(-1, dp(44)));
+        updateLibraryHeader();
+    }
+
+    private void updateLibraryHeader() {
+        if (headerTime == null) return;
+        String time = DateFormat.format(DateFormat.is24HourFormat(activity) ? "H:mm" : "h:mm", System.currentTimeMillis()).toString();
+        if (!time.contentEquals(headerTime.getText())) headerTime.setText(time);
+        BatteryManager battery = activity.getSystemService(BatteryManager.class);
+        int percent = battery == null ? -1 : battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        if (headerBattery != null) headerBattery.setPercent(percent);
+    }
+
+    private TextView referenceText(String value, int pixels, int color) {
+        TextView view = text(value, 20, color, Typeface.NORMAL);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_PX, px(pixels));
+        view.setGravity(Gravity.CENTER_VERTICAL);
+        return view;
+    }
+
+    private int px(int value) { return Math.round(value * activity.getResources().getDisplayMetrics().widthPixels / 480f); }
 
     private void addDeckHeader(String state, int color) {
         LinearLayout row = new LinearLayout(activity);
         row.setGravity(Gravity.CENTER_VERTICAL);
         TextView back = text("‹ recorder", 22, WHITE, Typeface.NORMAL);
-        back.setContentDescription("Back");
+        back.setContentDescription(pageMode == PageMode.READY_FROM_LIBRARY ? "Back to recordings" : "Back");
         back.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View view) { closeFromUser(); }
+            @Override public void onClick(View view) { backFromUser(); }
         });
         row.addView(back, new LinearLayout.LayoutParams(0, -1, 1f));
         TextView status = text(state, 13, color, Typeface.NORMAL);
@@ -558,18 +718,10 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         volumeLabel.setTextColor(muted || volumeError != null ? ORANGE : MUTED);
     }
 
-    private void addLibraryAction(LinearLayout parent, String label, String detail,
+    private void addLibraryAction(LinearLayout parent, String label, String detail, String fullDate,
             Runnable action) {
-        LinearLayout row = new LinearLayout(activity);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(15), dp(7), dp(15), dp(7));
-        TextView primary = text(label, 18, WHITE, Typeface.NORMAL);
-        TextView secondary = text(detail, 13, MUTED, Typeface.NORMAL);
-        row.addView(primary);
-        row.addView(secondary);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(66));
-        params.bottomMargin = dp(6);
+        LibraryRow row = new LibraryRow(label, detail, fullDate);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, px(96));
         parent.addView(row, params);
         registerAction(row, action);
     }
@@ -591,13 +743,20 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     private void registerAction(final View view, final Runnable action) {
         final int index = actions.size();
-        actions.add(action);
+        final int generation = pageGeneration;
+        final Runnable guardedAction = new Runnable() {
+            @Override public void run() {
+                if (!isVisible() || generation != pageGeneration || !view.isAttachedToWindow()) return;
+                action.run();
+            }
+        };
+        actions.add(guardedAction);
         actionViews.add(view);
         view.setFocusable(true);
         view.setClickable(true);
         view.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override public void onFocusChange(View target, boolean focused) {
-                if (focused) {
+                if (focused && generation == pageGeneration) {
                     selectedAction = index;
                     applySelection(false);
                 }
@@ -605,6 +764,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         });
         view.setOnTouchListener(new View.OnTouchListener() {
             @Override public boolean onTouch(View target, MotionEvent event) {
+                if (generation != pageGeneration || !isVisible()) return true;
                 if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                     selectedAction = index;
                     applySelection(false);
@@ -624,7 +784,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             }
         });
         view.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View target) { action.run(); }
+            @Override public void onClick(View target) { guardedAction.run(); }
         });
     }
 
@@ -632,7 +792,11 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         for (int i = 0; i < actionViews.size(); i++) {
             View view = actionViews.get(i);
             boolean selected = i == selectedAction;
-            if (view instanceof TransportButton) {
+            if (view instanceof LibraryRow) {
+                ((LibraryRow) view).showSelection(selected);
+            } else if (view instanceof PlainControl) {
+                ((PlainControl) view).showSelection(selected);
+            } else if (view instanceof TransportButton) {
                 ((TransportButton) view).showSelection(selected);
             } else if (view instanceof Button) {
                 view.setBackground(shape(selected ? ORANGE : CARD, 14));
@@ -661,24 +825,36 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     }
 
     private void closeFromUser() {
-        dismiss();
+        // Back must end an unfinished take, just like leaving the Activity.
+        // Otherwise release could save and reopen a recorder the user closed.
+        abortAndDismiss();
         host.onRecorderClosed();
     }
 
     private void dismiss() {
+        pageGeneration++;
+        FrameLayout removed = root;
+        root = null;
         main.removeCallbacks(meterTick);
         main.removeCallbacks(playbackTick);
         stopDeck();
         for (View view : actionViews) view.animate().cancel();
         main.removeCallbacks(volumeTick);
-        notes.stopPlayback();
+        stopPlaybackForNavigation();
         clearOwnedScreenFlag();
-        if (root != null) {
-            ViewGroup parent = (ViewGroup) root.getParent();
-            if (parent != null) parent.removeView(root);
+        if (removed != null) {
+            ViewGroup parent = (ViewGroup) removed.getParent();
+            if (parent != null) parent.removeView(removed);
         }
-        root = null;
+        for (Map.Entry<View, Integer> saved : siblingAccessibility.entrySet()) {
+            if (saved.getKey().getImportantForAccessibility() == View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS)
+                saved.getKey().setImportantForAccessibility(saved.getValue());
+        }
+        siblingAccessibility.clear();
         showingSaved = false;
+        pageMode = PageMode.OTHER;
+        headerTime = null; headerBattery = null;
+        librarySelection = 2; libraryScrollY = 0;
         page = null;
         actionViews.clear();
         actions.clear();
@@ -731,7 +907,81 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
 
-    private enum Glyph { PLAY, STOP, NOTES, DONE, CANCEL }
+    private final class PlainControl extends TextView {
+        private final int baseColor;
+        PlainControl(String label, String description, int pixels, int color) {
+            super(activity);
+            baseColor = color;
+            setText(label); setContentDescription(description);
+            setTypeface(RabbitTypography.regular(activity));
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, px(pixels));
+            setIncludeFontPadding(false); setGravity(Gravity.CENTER);
+            setTextColor(color); setBackgroundColor(BG); setMinHeight(dp(44));
+            setSoundEffectsEnabled(false);
+        }
+        void showSelection(boolean selected) {
+            setSelected(selected);
+            setTextColor(selected ? RECORD_RED : baseColor);
+        }
+        @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(info);
+            info.setClassName("android.widget.Button");
+        }
+    }
+
+    private final class LibraryRow extends LinearLayout {
+        private final TextView chevron;
+        LibraryRow(String title, String date, String fullDate) {
+            super(activity);
+            setOrientation(HORIZONTAL); setGravity(Gravity.CENTER_VERTICAL);
+            setBackgroundColor(BG);
+            setContentDescription("Open voice note, " + fullDate);
+            LinearLayout labels = new LinearLayout(activity);
+            labels.setOrientation(VERTICAL); labels.setGravity(Gravity.CENTER_VERTICAL);
+            TextView primary = referenceText(title, 32, WHITE);
+            TextView secondary = referenceText(date, 20, MUTED);
+            primary.setSingleLine(true); secondary.setSingleLine(true);
+            labels.addView(primary); labels.addView(secondary);
+            addView(labels, new LinearLayout.LayoutParams(0, -1, 1f));
+            chevron = referenceText("›", 32, MUTED);
+            chevron.setGravity(Gravity.CENTER);
+            addView(chevron, new LinearLayout.LayoutParams(px(30), -1));
+        }
+        void showSelection(boolean selected) {
+            setSelected(selected);
+            chevron.setTextColor(selected ? RECORD_RED : MUTED);
+        }
+        @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(info);
+            info.setClassName("android.widget.Button");
+        }
+    }
+
+    private final class RecorderBattery extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private int percent = -2;
+        RecorderBattery() { super(activity); }
+        void setPercent(int value) {
+            value = value < 0 || value > 100 ? -1 : value;
+            if (percent == value) return;
+            percent = value;
+            setContentDescription(value < 0 ? "Battery unavailable" : "Battery " + value + " percent");
+            invalidate();
+        }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            if (getWidth() <= 0 || getHeight() <= 0) return;
+            int saved = canvas.save();
+            canvas.scale(getWidth() / 32f, getHeight() / 18f);
+            paint.setColor(RECORD_RED); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(1.6f);
+            canvas.drawRoundRect(1, 2, 28, 16, 3, 3, paint);
+            paint.setStyle(Paint.Style.FILL); canvas.drawRect(29, 6, 32, 12, paint);
+            if (percent > 0) canvas.drawRect(4, 5, 4 + 21 * percent / 100f, 13, paint);
+            canvas.restoreToCount(saved);
+        }
+    }
+
+    private enum Glyph { PLAY, STOP, NOTES, DONE, CANCEL, RECORDER }
 
     private final class TransportButton extends Button {
         private final GlyphDrawable icon;
@@ -790,6 +1040,14 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             paint.setStyle(Paint.Style.STROKE);
             path.reset();
             switch (glyph) {
+                case RECORDER:
+                    int color = paint.getColor();
+                    paint.setStyle(Paint.Style.FILL); canvas.drawCircle(12, 12, 11, paint);
+                    paint.setColor(BG); paint.setStrokeWidth(3f); paint.setStyle(Paint.Style.STROKE);
+                    canvas.translate(12, 12);
+                    for (int i = 0; i < 3; i++) { canvas.drawLine(0, -4, 0, -8, paint); canvas.rotate(120); }
+                    paint.setColor(color); paint.setStrokeWidth(2f);
+                    break;
                 case PLAY:
                     paint.setStyle(Paint.Style.FILL);
                     path.moveTo(7, 4); path.lineTo(20, 12); path.lineTo(7, 20); path.close();

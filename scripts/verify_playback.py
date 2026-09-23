@@ -36,7 +36,7 @@ def tap_node(device, node):
 
 def tap_label(device, label):
     nodes = [node for node in ET.fromstring(dump_ui(device)).iter('node')
-             if node.get('text') == label]
+             if node.get('text') == label or node.get('content-desc') == label]
     if len(nodes) != 1:
         raise RuntimeError('Expected one visible control: ' + label)
     tap_node(device, nodes[0])
@@ -109,7 +109,13 @@ def open_recorder_library(device):
         recorder = visible_label(device, 'recorder')
         if recorder is not None:
             tap_node(device, recorder)
-            return device.lease()
+            deadline = time.monotonic() + 12
+            while time.monotonic() < deadline:
+                ui = dump_ui(device)
+                if 'Voice recorder' in ui and 'Media volume' in ui:
+                    return device.lease()
+                time.sleep(.12)
+            raise RuntimeError('Recorder library did not become accessible after its card transition')
         wheel_down(device, wheel)
         time.sleep(.12)
     raise RuntimeError('Recorder card was not visible within the bounded deck traversal')
@@ -147,13 +153,22 @@ def main():
         lease = open_recorder_library(device)
         ui = dump_ui(device)
         nodes = list(ET.fromstring(ui).iter('node'))
-        rows = [node for node in nodes if node.get('text') == 'Select to play']
+        rows = [node for node in nodes if node.get('content-desc', '').startswith('Open voice note,')]
         if not rows or 'Media volume' not in ui:
             raise RuntimeError('Recorder library or volume controls not visible')
         # Use the longest visible note so playback stays active during the dump.
         index = max(range(len(rows)), key=lambda i: int(
             device.shell('stat', '-c', '%s', entries[i])))
         note_row = rows[index]
+        tap_node(device, note_row)
+        detail_ui = dump_ui(device)
+        result['row_opens_detail_without_playback'] = ('Voice note details' in detail_ui
+                and not playback_line(device, uid) and not device.microphone_active())
+        result['real_duration_visible'] = any(re.fullmatch(r'Duration \d+:\d{2}:\d{2}', node.get('text', ''))
+                                             for node in ET.fromstring(detail_ui).iter('node'))
+        if not result['row_opens_detail_without_playback'] or not result['real_duration_visible']:
+            raise RuntimeError('Voice-note detail did not open silently with readable duration metadata')
+        nodes = list(ET.fromstring(detail_ui).iter('node'))
         lower = next(node for node in nodes if node.get('content-desc') == 'Lower media volume')
         higher = next(node for node in nodes if node.get('content-desc') == 'Raise media volume')
         device.shell('cmd', 'media_session', 'volume', '--stream', '3', '--set', '0')
@@ -161,12 +176,12 @@ def main():
         muted_ui = dump_ui(device)
         result['zero_volume_visible'] = 'Media volume off' in muted_ui
         device.screenshot(evidence / 'volume-off.png')
-        tap_node(device, note_row)
+        tap_label(device, 'Play')
         time.sleep(.3)
         silent = playback_line(device, uid)
         result['play_respects_zero_volume'] = volume(device) == 0 and bool(silent)
-        # The same note row now stops playback. No note content leaves the R1.
-        tap_node(device, note_row)
+        # Playback is a separate explicit detail action; opening a row is silent.
+        tap_label(device, 'Stop')
         tap_node(device, higher)
         time.sleep(.2)
         result['plus_raises_one_step'] = volume(device) == 1
@@ -187,7 +202,7 @@ def main():
         device.shell('cmd', 'media_session', 'volume', '--stream', '3', '--set', str(starting_volume))
         time.sleep(.6)
         device.screenshot(evidence / 'volume-restored.png')
-        tap_node(device, note_row)
+        tap_label(device, 'Play')
         time.sleep(.4)
         audible = playback_line(device, uid)
         result['playback_started_unmuted'] = bool(audible) and 'mutedState:none' in audible

@@ -63,18 +63,20 @@ public final class CardTransition extends FrameLayout {
     public boolean hasRevealed() { return revealed; }
 
     public void attachTo(ViewGroup parent) {
-        if (getParent() == parent) return;
-        restoreSiblingAccessibility();
-        moving = true;
-        if (getParent() instanceof ViewGroup) ((ViewGroup) getParent()).removeView(this);
-        parent.addView(this, new ViewGroup.LayoutParams(-1, -1));
+        if (getParent() != parent) {
+            restoreSiblingAccessibility();
+            moving = true;
+            if (getParent() instanceof ViewGroup) ((ViewGroup) getParent()).removeView(this);
+            parent.addView(this, new ViewGroup.LayoutParams(-1, -1));
+            moving = false;
+        }
         for (int i = 0; i < parent.getChildCount(); i++) {
             View sibling = parent.getChildAt(i);
             if (sibling == this) continue;
-            siblingAccessibility.put(sibling, sibling.getImportantForAccessibility());
+            if (!siblingAccessibility.containsKey(sibling))
+                siblingAccessibility.put(sibling, sibling.getImportantForAccessibility());
             sibling.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         }
-        moving = false;
         bringToFront();
     }
 
@@ -114,6 +116,9 @@ public final class CardTransition extends FrameLayout {
     private void reveal() {
         if (!active || revealed) return;
         revealed = true; revealing = true;
+        // A same-window feature may acquire its own modal layer during reveal.
+        // Release this layer first so nested overlays save the real prior flags.
+        restoreSiblingAccessibility();
         listener.onReveal(this);
         revealing = false;
     }

@@ -204,6 +204,23 @@ def interrupt_flow(device, wheel, driver, result):
         device.shell('input', 'keyevent', 'KEYCODE_BACK'); time.sleep(.7)
         wheel_down(device, wheel); time.sleep(6.2)
         check('exit_wheel_returns_home_then_opens_stack', bool(selected(dump_ui(device))))
+
+        # Recorder attaches to the existing parent. Cancel the final fade after
+        # its reveal and verify both modal owners restore the correct siblings.
+        home(device); open_deck(device, wheel); select_card(device, wheel, 'recorder')
+        scale('20')
+        power = shlex.quote(driver)
+        release = 'sendevent ' + power + ' 1 116 0; sendevent ' + power + ' 0 0 0'
+        device.adb('shell', 'trap ' + shlex.quote(release) + ' EXIT; sendevent ' + power
+                   + ' 1 116 1; sendevent ' + power + ' 0 0 0; sleep .075; ' + release
+                   + '; sleep 13.2; input keyevent KEYCODE_BACK')
+        ui = wait_for(device, lambda value: 'Voice recorder' in value and 'New voice note' in value,
+                      'Canceling the revealed fade lost Recorder')
+        check('revealed_recorder_survives_transition_cancel', not selected(ui) and not device.microphone_active())
+        scale('0')
+        device.shell('input', 'keyevent', 'KEYCODE_BACK')
+        wait_for(device, lambda value: 'Rabbit home.' in value, 'Recorder Back did not restore Home')
+        check('recorder_close_restores_deck_accessibility', bool(selected(open_deck(device, wheel))))
         scale('0')
         home(device); open_deck(device, wheel); select_card(device, wheel, 'translator')
         side_click(device, driver)

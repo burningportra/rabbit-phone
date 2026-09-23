@@ -13,12 +13,20 @@ public final class CardNavigationTest {
         CardNavigation nav = new CardNavigation(Arrays.asList("camera", "gallery", "timer", "recorder"));
         requireOrder(nav, "camera", "gallery", "timer", "recorder");
         require(nav.selectedId().equals("camera"));
+        require(nav.visit("recorder"));
+        require(nav.selectedId().equals("recorder") && !nav.isOpened("recorder"));
+        requireOrder(nav, "camera", "gallery", "timer", "recorder");
+        require(!nav.visit("unknown") && nav.selectedId().equals("recorder"));
+        nav.visit("camera");
         nav.move(-1); require(nav.selectedIndex() == 0 && nav.selectedId().equals("camera"));
         nav.move(100); require(nav.selectedIndex() == 3 && nav.selectedId().equals("recorder"));
         nav.select(1); require(nav.selectedId().equals("gallery"));
         require(nav.open("timer"));
         requireOrder(nav, "timer", "camera", "gallery", "recorder");
         require(nav.selectedId().equals("timer") && nav.selectedIndex() == 0);
+        require(nav.visit("gallery"));
+        requireOrder(nav, "timer", "camera", "gallery", "recorder");
+        require(nav.isOpened("timer") && !nav.isOpened("gallery"));
         require(nav.open("recorder"));
         requireOrder(nav, "recorder", "timer", "camera", "gallery");
         require(nav.open("timer"));
@@ -44,6 +52,6 @@ public final class CardNavigationTest {
         require(refused && nav.order().equals(Arrays.asList("camera", "timer")));
         nav.setCatalog(Collections.<String>emptyList()); nav.move(1);
         require(nav.selectedId() == null && nav.order().isEmpty());
-        System.out.println("Card navigation cases passed: ordering, selection, opened cards, dismissal, restore, invalid catalog.");
+        System.out.println("Card navigation cases passed: feature visits, active ordering, selection, dismissal, restore, invalid catalog.");
     }
 }

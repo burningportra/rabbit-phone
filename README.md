@@ -17,8 +17,10 @@ for the owner's device.
 - Native Java Android APIs only; no Gradle or external app dependencies required.
 - Home shows the clock, battery and rabbit. The first wheel tick or upward swipe opens
   a rabbitOS 2-inspired card stack; the apps card keeps every installed phone app accessible.
-- Opened cards move to the front. Swipe an opened card left to dismiss its navigation
-  entry without deleting app data. Top-edge swipe opens brightness, media volume,
+- The catalog keeps its observed feature order while ordinary feature visits do
+  not create a generic recent-card entry. An active card represents a real local
+  task, such as a running timer; the legacy `opened_cards` ordering cache is not
+  used. Top-edge swipe opens brightness, media volume,
   camera, keyboard, lock and settings; bottom-edge swipe returns Home.
 - The wheel browses the overlapping cards and app list with haptic
   ticks. The R1 wheel does not physically click; its side button selects instead.
@@ -68,6 +70,11 @@ moves between actions with haptics and a short side-button press selects one.
 Saved notes are available from the **recorder** card and **apps → Utilities → Voice notes**.
 Playback starts only when selected. Leaving the app, locking it or losing the
 hardware connection stops playback and discards an unfinished recording.
+The native library uses a red header and borderless **Voice note** rows with the
+real saved date and a chevron. `+` opens the ready recorder without starting the
+microphone; a row opens a quiet detail view with the actual duration and
+Play/Stop, and Back returns to the library. Existing recording and saved reel
+screens remain in place, and recorder volume settings are preserved.
 Saved notes and the library include **−/+ media-volume controls** and a current
 level. Select them with the wheel and side button, or tap them. A zero or muted
 level says **Media volume off**; Play respects that setting. Adjusting the volume
@@ -178,23 +185,32 @@ The device checks exercise the visible UI and raw R1 wheel/power input paths:
 ```sh
 python3 scripts/verify_navigation.py --device-test
 python3 scripts/verify_card_flows.py --device-test --interruptions
+python3 scripts/verify_active_cards.py --device-test
 python3 scripts/verify_navigation_camera.py --device-test
 python3 scripts/verify_quick_settings.py --device-test
 python3 scripts/verify_timer.py --device-test --reboot
 python3 scripts/verify_timer.py --device-test --access-recovery
+python3 scripts/verify_recorder_navigation.py --device-test
 ```
 
 The card-flow check exercises Translator's language picker and the Translator,
 Timer and Recorder Back paths. Its optional interruption checks temporarily slow
 or disable Android animations, then restore the original setting. The camera check opens its preview without taking photos. The quick-settings
 check temporarily changes brightness and volume, verifies restart persistence,
-and restores its own changes. These navigation checks do not record or play notes. The full timer check sounds
+and restores its own changes. The general navigation checks do not record audio or play personal notes. The full timer check sounds
 one short completion alert and, with `--reboot`, briefly restarts the R1; it refuses
 to overwrite an existing active timer. `--access-recovery` verifies wheel/button
 selection and alarm-access loss without sounding an alert. Results and
 screenshots remain under ignored `evidence/`; existing notes are hash-checked. The verifier discovers the R1 wheel device and
 checks its supported Linux input keys before injection: `KEY_UP` (103) and
 `KEY_DOWN` (108), not Android key-code numbers.
+
+`verify_active_cards.py` creates and pauses its own timer, checks its geometry,
+catalog order and restart recovery, then cancels only that owned timer. It refuses
+to alter an existing timer. `verify_recorder_navigation.py` verifies the library,
+silent detail opening, duration metadata, explicit muted playback and volume
+persistence with a generated silent fixture. The fixture is removed only after
+its hash matches; original notes and volume are preserved.
 See [navigation parity](docs/navigation-parity.md) for tested behavior and known
 stock-rabbitOS differences.
 
@@ -233,6 +249,8 @@ available. The app reconnects while foreground after the helper returns.
 ![Rabbit Phone home screen](docs/home.png)
 
 ![Reel-to-reel recording screen](docs/recorder.png)
+
+![Local note detail using a generated silent test fixture](docs/recorder-detail.png)
 
 See [validation](docs/validation.md), [theme and typography](docs/theme.md),
 [verified Android base](docs/base-system.md), [hardware protocol](hardware/README.md), and

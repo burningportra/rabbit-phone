@@ -38,9 +38,9 @@ public final class CardDeckView extends View {
 
     // Reference geometry: tune this group without changing touch/selection behavior.
     private static final float SCREEN_WIDTH = 480f, SCREEN_HEIGHT = 640f;
-    private static final float CARD_LEFT = 68f, CARD_WIDTH = 326f, CARD_HEIGHT = 440f;
+    private static final float CARD_LEFT = 88f, CARD_WIDTH = 300f, CARD_HEIGHT = 440f;
     private static final float SELECTED_TOP = 190f, SELECTED_REVEAL = 112f, HEADER_STEP = 44f;
-    private static final float ACTIVE_TOP = 190f, ACTIVE_HEIGHT = 390f, ACTIVE_REVEAL = 390f;
+    private static final float ACTIVE_TOP = 118f, ACTIVE_HEIGHT = 390f, ACTIVE_REVEAL = 420f;
     private static final float CLIP_TOP = 112f, CLIP_BOTTOM = 584f, CORNER_RADIUS = 16f;
     private static final float EDGE_GUARD = 32f, DRAG_STEP = 118f;
     private static final long SETTLE_MS = 180L;
@@ -259,31 +259,32 @@ public final class CardDeckView extends View {
 
     /** Draw the same card artwork into a transient face without changing navigation state. */
     public void drawTransitionFace(Canvas canvas, NavigationCard card, RectF bounds) {
-        float scale = bounds.width() / CARD_WIDTH;
+        final float artworkWidth = 326f;
+        float scale = bounds.width() / artworkWidth;
         if (scale <= 0f || bounds.height() <= 0f) return;
         float height = bounds.height() / scale;
         int save = canvas.save();
         canvas.translate(bounds.left, bounds.top); canvas.scale(scale, scale);
-        canvas.clipRect(-8, -8, CARD_WIDTH + 8, height + 8);
+        canvas.clipRect(-8, -8, artworkWidth + 8, height + 8);
         paint.setStyle(Paint.Style.FILL); paint.setColor(card.color);
-        canvas.drawRoundRect(0, 0, CARD_WIDTH, height, CORNER_RADIUS, CORNER_RADIUS, paint);
+        canvas.drawRoundRect(0, 0, artworkWidth, height, CORNER_RADIUS, CORNER_RADIUS, paint);
         paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2); paint.setColor(Color.BLACK);
-        canvas.drawRoundRect(0, 0, CARD_WIDTH, height, CORNER_RADIUS, CORNER_RADIUS, paint);
+        canvas.drawRoundRect(0, 0, artworkWidth, height, CORNER_RADIUS, CORNER_RADIUS, paint);
         drawGlyph(canvas, card.glyph, 12, 6, 29, card.color);
         labelPaint.setTextAlign(Paint.Align.RIGHT); labelPaint.setTextSize(28);
         float width = labelPaint.measureText(card.title);
-        if (width > CARD_WIDTH - 70) labelPaint.setTextSize(28 * (CARD_WIDTH - 70) / width);
-        canvas.drawText(card.title, CARD_WIDTH - 13, 29, labelPaint);
+        if (width > artworkWidth - 70) labelPaint.setTextSize(28 * (artworkWidth - 70) / width);
+        canvas.drawText(card.title, artworkWidth - 13, 29, labelPaint);
         if (card.preview != null) {
-            drawPreviewText(canvas, card.preview.value, 70, CARD_WIDTH / 2, height / 2 + 29);
-            drawPreviewText(canvas, card.preview.detail, 26, CARD_WIDTH / 2, height / 2 + 67);
+            drawPreviewText(canvas, card.preview.value, 70, artworkWidth / 2, height / 2 + 29);
+            drawPreviewText(canvas, card.preview.detail, 26, artworkWidth / 2, height / 2 + 67);
         } else {
-            drawGlyph(canvas, card.glyph, CARD_WIDTH / 2 - 58, height / 2 - 58, 116, card.color);
+            drawGlyph(canvas, card.glyph, artworkWidth / 2 - 58, height / 2 - 58, 116, card.color);
             int mirrored = canvas.save();
-            canvas.rotate(180, CARD_WIDTH / 2, height / 2);
+            canvas.rotate(180, artworkWidth / 2, height / 2);
             labelPaint.setTextAlign(Paint.Align.RIGHT); labelPaint.setTextSize(28);
-            if (width > CARD_WIDTH - 70) labelPaint.setTextSize(28 * (CARD_WIDTH - 70) / width);
-            canvas.drawText(card.title, CARD_WIDTH - 13, 29, labelPaint);
+            if (width > artworkWidth - 70) labelPaint.setTextSize(28 * (artworkWidth - 70) / width);
+            canvas.drawText(card.title, artworkWidth - 13, 29, labelPaint);
             drawGlyph(canvas, card.glyph, 12, 6, 29, card.color);
             canvas.restoreToCount(mirrored);
         }
@@ -385,12 +386,21 @@ public final class CardDeckView extends View {
 
     private void visibleBounds(int index, RectF bounds) {
         float top = cardTop(index);
-        float bottom = Math.min(CLIP_BOTTOM, top + cardHeight(index));
+        float bottom = Math.min(cardClipBottom(index), top + cardHeight(index));
         if (index + 1 < cards.size()) bottom = Math.min(bottom, cardTop(index + 1));
         float left = CARD_LEFT + (index == dismissIndex ? dismissOffset : 0f);
         bounds.set(Math.max(0f, left), Math.max(CLIP_TOP, top),
                 Math.min(SCREEN_WIDTH, left + CARD_WIDTH), bottom);
         if (bounds.isEmpty()) bounds.setEmpty();
+    }
+
+    private float cardClipBottom(int index) {
+        if (cards.isEmpty()) return CLIP_BOTTOM;
+        int before = Math.max(0, Math.min(cards.size() - 1, (int) position));
+        if (before < 0 || index <= before || !cards.get(before).active) return CLIP_BOTTOM;
+        float fraction = Math.max(0f, Math.min(1f, position - before));
+        float cueBottom = cardTop(before + 1) + 12f;
+        return Math.min(CLIP_BOTTOM, cueBottom + (CLIP_BOTTOM - cueBottom) * fraction);
     }
 
     private float cardHeight(int index) {
@@ -837,8 +847,11 @@ public final class CardDeckView extends View {
         for (int i = 0; i < cards.size(); i++) {
             float top = cardTop(i);
             if (top >= CLIP_BOTTOM || top + cardHeight(i) <= CLIP_TOP) continue;
+            int cardClip = canvas.save();
+            canvas.clipRect(0f, CLIP_TOP, SCREEN_WIDTH, cardClipBottom(i));
             drawCard(canvas, cards.get(i), i,
                     CARD_LEFT + (i == dismissIndex ? dismissOffset : 0f), top);
+            canvas.restoreToCount(cardClip);
         }
         canvas.restoreToCount(save);
     }
@@ -859,11 +872,11 @@ public final class CardDeckView extends View {
         paint.setStrokeWidth(2f);
         paint.setColor(Color.BLACK);
         canvas.drawRoundRect(left, top, left + CARD_WIDTH, top + height, CORNER_RADIUS, CORNER_RADIUS, paint);
-        drawGlyph(canvas, card.glyph, left + 12f, top + 6f, 29f, card.color);
+        drawGlyph(canvas, card.glyph, left + 12f, top + 6f, 27f, card.color);
         labelPaint.setTextAlign(Paint.Align.RIGHT);
-        labelPaint.setTextSize(28f);
+        labelPaint.setTextSize(26f);
         float width = labelPaint.measureText(card.title);
-        if (width > CARD_WIDTH - 70f) labelPaint.setTextSize(28f * (CARD_WIDTH - 70f) / width);
+        if (width > CARD_WIDTH - 70f) labelPaint.setTextSize(26f * (CARD_WIDTH - 70f) / width);
         canvas.drawText(card.title, left + CARD_WIDTH - 13f, top + 29f, labelPaint);
         if (card.active && card.preview != null) {
             drawPreview(canvas, card, index, left, top);
@@ -871,20 +884,25 @@ public final class CardDeckView extends View {
             drawGlyph(canvas, card.glyph, left + CARD_WIDTH / 2f - 52f, top + height / 2f - 52f, 104f, card.color);
         }
         if (top + height <= CLIP_BOTTOM && !(card.active && card.preview != null)) {
-            labelPaint.setTextAlign(Paint.Align.LEFT);
-            labelPaint.setTextSize(28f);
-            canvas.drawText(card.title, left + 18f, top + height - 20f, labelPaint);
-            drawGlyph(canvas, card.glyph, left + CARD_WIDTH - 42f, top + height - 45f, 27f, card.color);
+            int mirrored = canvas.save();
+            canvas.rotate(180f, left + CARD_WIDTH / 2f, top + height / 2f);
+            labelPaint.setTextAlign(Paint.Align.RIGHT); labelPaint.setTextSize(26f);
+            if (width > CARD_WIDTH - 70f) labelPaint.setTextSize(26f * (CARD_WIDTH - 70f) / width);
+            canvas.drawText(card.title, left + CARD_WIDTH - 13f, top + 29f, labelPaint);
+            drawGlyph(canvas, card.glyph, left + 12f, top + 6f, 27f, card.color);
+            canvas.restoreToCount(mirrored);
         }
     }
 
     private void drawPreview(Canvas canvas, NavigationCard card, int index, float left, float top) {
         NavigationCard.Preview preview = card.preview;
         if (preview == null) return;
+        if (preview.kind == NavigationCard.Preview.Kind.TIMER && !preview.running && !preview.finished)
+            drawPreviewText(canvas, "paused", 24f, left + CARD_WIDTH / 2f, top + ACTIVE_HEIGHT / 2f - 46f);
         drawPreviewText(canvas, preview.value,
                 preview.kind == NavigationCard.Preview.Kind.TIMER ? 70f : 52f,
-                left + CARD_WIDTH / 2f, top + ACTIVE_HEIGHT / 2f + 29f);
-        drawPreviewText(canvas, preview.detail, 26f, left + CARD_WIDTH / 2f, top + ACTIVE_HEIGHT / 2f + 67f);
+                left + CARD_WIDTH / 2f, top + ACTIVE_HEIGHT / 2f + 22f);
+        drawPreviewText(canvas, preview.detail, 24f, left + CARD_WIDTH / 2f, top + ACTIVE_HEIGHT / 2f + 59f);
         if (preview.kind == NavigationCard.Preview.Kind.TIMER && isFullyExposedSelectedTimer(index)) {
             drawTimerAction(canvas, left + ACTION_MARGIN, top + ACTIVE_HEIGHT - ACTION_BOTTOM - ACTION_SIZE,
                     "cancel_timer");

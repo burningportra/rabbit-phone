@@ -7,12 +7,14 @@ import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaRecorder;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -193,6 +195,28 @@ public final class VoiceNotes {
             if (file.isFile() && file.getName().endsWith(".m4a")) notes.add(file);
         }
         return notes;
+    }
+
+    /** Read duration metadata without creating a player, taking audio focus, or starting audio.
+     * -1 means unavailable. Only an existing private .m4a note is accepted. */
+    public long durationMillis(File note) {
+        if (!requireMainThread() || !isValid(note) || !note.getName().endsWith(".m4a")) return -1;
+        try {
+            File canonical = note.getCanonicalFile();
+            if (!notesDirectory.getCanonicalFile().equals(canonical.getParentFile())) return -1;
+            try (FileInputStream input = new FileInputStream(canonical)) {
+                MediaMetadataRetriever metadata = new MediaMetadataRetriever();
+                try {
+                    metadata.setDataSource(input.getFD());
+                    if (!"yes".equals(metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO))) return -1;
+                    String duration = metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                    long millis = duration == null ? -1 : Long.parseLong(duration);
+                    return millis > 0 ? millis : -1;
+                } finally {
+                    try { metadata.release(); } catch (Exception ignored) { }
+                }
+            }
+        } catch (IOException | RuntimeException unavailable) { return -1; }
     }
 
     public boolean play(File note) {

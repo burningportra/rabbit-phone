@@ -290,6 +290,7 @@ public final class RecorderAssistActivity extends Activity {
             quickSettings.dismiss();
             return;
         }
+        if (overlay != null && overlay.handleBack()) return;
         finish();
     }
 

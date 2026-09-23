@@ -8,6 +8,7 @@ import time
 import xml.etree.ElementTree as ET
 from verify_recorder import Device, FILES, PACKAGE, ROOT
 from verify_navigation import dump_ui, selected, require
+from verify_card_flows import wait_for
 from verify_playback import volume, wheel_driver, wheel_down, wheel_up, tap_node
 from verify_volume_persistence import reboot_and_wait
 
@@ -78,7 +79,7 @@ def main():
         for _ in range(20):
             if selected(ui()).startswith('timer,'):
                 click_power()
-                require('Custom timer' in ui(), 'Timer preset screen did not open')
+                wait_for(d, lambda value: 'Custom timer' in value, 'Timer preset screen did not open')
                 return
             wheel_down(d, wheel); time.sleep(.2)
         raise RuntimeError('Wheel did not find the timer card')

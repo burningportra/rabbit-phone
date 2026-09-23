@@ -22,8 +22,11 @@ recording transcript is fabricated by the navigation layer.
   into a full green card face before the native translator setup page appears.
   That setup stores a local language pair; **Continue** opens Google Translate,
   rather than claiming a Rabbit translation service or account-backed result.
-- Opened cards sit above the remaining hand. Swiping an opened card left closes
-  its navigation entry; it must not delete recordings, photos or app data.
+- The ordinary catalog remains stable across feature visits. An active card is
+  owned by a real local task, currently the timer, rather than being a generic
+  record of the most recently opened feature; the legacy `opened_cards` cache
+  does not control its order. Swiping an active card left closes
+  that task's navigation entry without deleting recordings, photos or app data.
 - A feature's top-left Back control passes through its full card and returns Home. Bottom-edge upward
   navigation returns Home without activating another card.
 - Top-edge downward navigation opens quick settings: brightness, media volume,
@@ -40,9 +43,12 @@ recording transcript is fabricated by the navigation layer.
 ## Reference limits and completion gate
 
 The official launch footage shows the first eight cards as Camera, Magic Gallery,
-Timer, Translator, Recorder, r-cade, Reminders and Alarm. Later releases allow
-customized ordering and a separate creations hand, so this launch-state sequence
-is a visual fixture, not proof of every account's current catalog.
+Timer, Translator, Recorder, r-cade, Reminder and Alarms. At 288 seconds the
+same Camera → Magic Gallery → Timer → Translator order remains after opening
+Translator; it does not show generic recent-feature promotion. The later hand
+includes Settings, Creations and Intern. Local Music and Apps follow those
+observed catalog cards, so they are local additions rather than evidence of a
+Rabbit account's complete catalog.
 
 Observed Home-to-stack reveal settles between 231.4 and 231.7 seconds in the
 30 fps official demo. Quick Settings is unobstructed at 178.6 seconds. Exact
@@ -58,13 +64,15 @@ recreates the full card face through roughly 242.6 seconds, and reaches Home by
 transition to preserve that ordered sequence. Those durations are implementation
 choices informed by the footage, not yet a device-timing receipt.
 
-## Feature transitions and Translator in 0.8.0
+## Feature transitions, Translator and recorder navigation in 0.9.0
 
 Opening a card expands its face before revealing the feature in the same window.
-Back recreates the full face and then reaches Home. This intermediate face uses
-a centered 300×390 rectangle at approximately (88, 118) in the 480×640 display,
-with a rotated bottom label. It is distinct from a live card's position in the
-hand. The next-card cue appears during return, as observed in the close-up.
+Back recreates the full face and then reaches Home. The settled active-card
+envelope is a centered 300×390 rectangle at approximately `(88, 118)` in the
+480×640 display, with a rotated bottom label. The next-card cue occupies roughly
+`y=538..550` and appears on feature return; Translator's opening face has no
+cue. An earlier `190px` top estimate came from the timer pop-in frame and is not
+the settled geometry.
 
 Translator now has a native language-pair setup with a wheel-operated chooser,
 persisted preferences, and a Back path from chooser to setup before returning
@@ -73,7 +81,39 @@ local design because the footage does not show it. Continue opens Google
 Translate with the selected language codes, without sending recorded audio or
 claiming Rabbit's live translation backend.
 
-`scripts/verify_card_flows.py --device-test --interruptions` passes on the R1:
+The recorder library is native and local: a red header sits above borderless
+**Voice note** rows that show each note's real saved date and chevron. `+` opens
+the ready recorder without microphone use. Selecting a row opens quiet detail
+with the note's actual duration and Play/Stop; Back returns to the library and
+keeps the existing media-volume setting. The existing recording and saved reel
+states are unchanged.
+
+`scripts/verify_recorder_navigation.py --device-test` passes 17 checks on the R1.
+It uses a 20-second generated silent fixture to verify silent detail opening,
+real duration metadata, explicit muted Play/Stop, wheel/button Back, Plus/Ready,
+volume persistence after restart, and exact cleanup. All original notes remain
+unchanged. The recorder owns its modal accessibility flags; the card transition
+releases and reacquires its flags across same-parent reveal so underlying cards
+remain hidden until Recorder closes. Independent source review and the device's
+compressed accessibility tree verify this ownership.
+
+`scripts/verify_active_cards.py --device-test` passes 20 checks, including the
+settled timer/cue bounds, exclusion of hidden accessibility nodes, stable
+catalog order after feature visits, and recovery of the real paused timer after
+app restart. Only its owned timer is canceled; saved notes and volume remain
+unchanged. The upgrade also removed an observed legacy recent-card cache.
+
+The v0.9 general navigation check passes 22 checks. The card-flow interruption
+check passes 15, including cancellation after Recorder has appeared but before
+the final fade completes, restoration of the underlying deck's accessibility,
+and disabled animations. The original animation setting is restored afterward.
+
+The recording header's Back action now uses the existing cancellation path,
+which clears the unfinished take before dismissing the overlay. This pass did
+not record microphone audio; its device playback checks use generated silence.
+
+Earlier `scripts/verify_card_flows.py --device-test --interruptions` receipts
+also covered:
 Translator picker/Back and unchanged hardware lease, Timer setup/Back, Recorder
 library/Back, cancellation by Back/wheel/focus loss before reveal, wheel input
 during exit, and disabled animations. The test restores Android's animation
@@ -81,15 +121,14 @@ setting and verifies unchanged notes, timer state and media volume, with the
 microphone idle. These are interaction receipts, not a frame-perfect timing
 claim. Reference-aligned spacing is also inspected through device screenshots.
 
-The general navigation verifier passes all 21 checks and the camera verifier
-passes all 15, including Camera Back returning Home with a fresh input lease.
-The final spacing build also passes touch Back, Camera entry through its card,
-and return from the installed Clock app. The optional mascot's exact restore and
-reinstall path passes, and the installed APK hash matches the signed build.
-The README screenshot shows the app's native fallback artwork; the optional
-official PNG and all raw device evidence remain outside Git.
+The general navigation verifier passed all 21 checks and the camera verifier
+passed all 15, including Camera Back returning Home with a fresh input lease.
+Those historical receipts do not prove the v0.9 active-card geometry, catalog
+policy, transition modality, overlay accessibility, or recorder-navigation
+changes. The README screenshot shows the app's native fallback artwork; the
+optional official PNG and all raw device evidence remain outside Git.
 
-## Verified baseline on the connected R1 (0.6.0)
+## Historical connected-R1 receipts (0.6.0–0.8.0)
 
 The 0.6.0 navigation build implements the Home/stack reveal, wheel and touch
 selection, opened-card promotion, left dismissal, top quick settings, and bottom
@@ -115,13 +154,13 @@ wheel and side-button routing while visible. This keeps the underlying hardware
 lease and its fail-open lifecycle in Home rather than creating a second input
 owner for feature pages.
 
-## Timer card in 0.7.0
+## Native timer card
 
 The official demo at 250–254 seconds shows a running five-minute timer as a
 blue card with a live countdown, duration caption and sparse cancel/pause
-controls. Its vertical envelope follows the catalog hand, so expanded cards now
-begin at the same normalized 190px top and use a 390px face, instead of jumping
-up under the clock. Timer digits and the two controls are rendered from real,
+controls. Its settled face uses the shared normalized `(88, 118, 300, 390)`
+active-card envelope, with the cue beneath it; the 250-second pop-in frame is
+not the final placement. Timer digits and the two controls are rendered from real,
 persisted timer state. Preview updates preserve scrolling, touch tracking and
 accessibility focus; actions keep distinct identities across pause/resume/expiry
 so a stale Pause action cannot become Restart.
@@ -156,8 +195,9 @@ under ignored `evidence/timer/`.
 
 This is a working reference-based navigation implementation, not a verified
 one-to-one firmware replica. The timer now shows real countdown state and inline
-controls; other expanded cards still show category art instead of live app
-content. The default mascot and glyphs are original static renderings, not an
+controls; ordinary feature cards are catalog entries rather than live previews.
+Remaining native feature pages include Magic Gallery and other app-specific
+surfaces. The default mascot and glyphs are original static renderings, not an
 idle 3D Rabbit animation. The owner can optionally install the pinned official
 public mascot PNG privately with `scripts/install_mascot.py`; it is not bundled
 or published with the app. Android feature screens retain their own contents and
@@ -174,6 +214,6 @@ the transient overlay settles. Device tests distinguish those cases. Android's
 describes this temporary overlap in immersive apps. No privacy indicator,
 keyguard or system input protection is disabled.
 
-The one-to-one goal remains open for the other live card previews, exact setup
-screens, and the remaining visual and feature-screen differences. Passing the navigation checks does not close
-those gaps.
+The one-to-one goal remains open for the remaining native feature pages, exact
+setup screens, Home animation and unverified visual differences. Passing the
+navigation checks does not close those gaps.

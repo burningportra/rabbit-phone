@@ -55,7 +55,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.LinkedHashMap;
-import org.json.JSONArray;
 
 public final class HomeActivity extends Activity {
     private static final int BG = Color.BLACK;
@@ -350,7 +349,7 @@ public final class HomeActivity extends Activity {
             @Override public void onHoldStart() {
                 cancelCardTransition(true);
                 quickSettings.dismiss();
-                markOpened("recorder");
+                visitFeature("recorder");
                 recorderOverlay.beginHold();
                 updateSurfaceMode();
             }
@@ -440,7 +439,7 @@ public final class HomeActivity extends Activity {
                 new Runnable() {
                     @Override public void run() {
                         if (launchPackage("com.dot.gallery", new Intent(Intent.ACTION_VIEW).setType("image/*"),
-                                "No gallery is installed")) markOpened("gallery");
+                                "No gallery is installed")) visitFeature("gallery");
                     }
                 });
         addCard("timer", "timer", 0xff6b63ff, NavigationCard.Glyph.TIMER,
@@ -452,56 +451,53 @@ public final class HomeActivity extends Activity {
         addCard("translator", "translator", 0xff02f719, NavigationCard.Glyph.TRANSLATE,
                 new Runnable() {
                     @Override public void run() {
-                        markOpened("translator");
+                        visitFeature("translator");
                         showTranslator();
                     }
                 });
         addCard("recorder", "recorder", 0xffff163c, NavigationCard.Glyph.RECORDER,
                 new Runnable() {
-                    @Override public void run() { markOpened("recorder"); recorderOverlay.showLibrary(); updateSurfaceMode(); }
+                    @Override public void run() { visitFeature("recorder"); recorderOverlay.showLibrary(); updateSurfaceMode(); }
                 });
         addCard("r-cade", "r-cade", 0xffff8d00, NavigationCard.Glyph.RCADE, new Runnable() {
-            @Override public void run() { markOpened("r-cade"); showGames(); }
+            @Override public void run() { visitFeature("r-cade"); showGames(); }
         });
-        addCard("reminders", "reminders", 0xff0091ff, NavigationCard.Glyph.REMINDERS,
+        addCard("reminders", "reminder", 0xff0091ff, NavigationCard.Glyph.REMINDERS,
                 new Runnable() {
                     @Override public void run() {
-                        if (launchPackage("com.techyminati.pages", null, "No reminders app is installed")) markOpened("reminders");
+                        if (launchPackage("com.techyminati.pages", null, "No reminders app is installed")) visitFeature("reminders");
                     }
                 });
-        addCard("alarm", "alarm", 0xffe16bf5, NavigationCard.Glyph.ALARM,
+        addCard("alarm", "alarms", 0xffe16bf5, NavigationCard.Glyph.ALARM,
                 new Runnable() {
                     @Override public void run() {
-                        if (launchIntent(new Intent(AlarmClock.ACTION_SHOW_ALARMS), "No alarm app is installed")) markOpened("alarm");
+                        if (launchIntent(new Intent(AlarmClock.ACTION_SHOW_ALARMS), "No alarm app is installed")) visitFeature("alarm");
                     }
                 });
-        addCard("intern", "intern", 0xffffb300, NavigationCard.Glyph.INTERN,
-                new Runnable() {
-                    @Override public void run() { markOpened("intern"); showWebCard("intern", "Open OS3", "https://os3.rabbit.tech/"); }
-                });
-        addCard("music", "music", 0xffe7f200, NavigationCard.Glyph.MUSIC, new Runnable() {
-            @Override public void run() { openMusic(); }
+        addCard("settings", "settings", 0xffff3400, NavigationCard.Glyph.SETTINGS, new Runnable() {
+            @Override public void run() { visitFeature("settings"); showSettings(); }
         });
         addCard("creations", "creations", 0xffff7700, NavigationCard.Glyph.CREATIONS,
                 new Runnable() {
                     @Override public void run() {
-                        markOpened("creations");
+                        visitFeature("creations");
                         showWebCard("creations", "Browse creations", "https://www.rabbit.tech/creations");
                     }
                 });
-        addCard("settings", "settings", 0xffff3400, NavigationCard.Glyph.SETTINGS, new Runnable() {
-            @Override public void run() { markOpened("settings"); showSettings(); }
+        addCard("intern", "intern", 0xffffb300, NavigationCard.Glyph.INTERN,
+                new Runnable() {
+                    @Override public void run() { visitFeature("intern"); showWebCard("intern", "Open OS3", "https://os3.rabbit.tech/"); }
+                });
+        addCard("music", "music", 0xffe7f200, NavigationCard.Glyph.MUSIC, new Runnable() {
+            @Override public void run() { openMusic(); }
         });
         addCard("apps", "apps", 0xfff5efe1, NavigationCard.Glyph.APPS, new Runnable() {
-            @Override public void run() { markOpened("apps"); showApps(); }
+            @Override public void run() { visitFeature("apps"); showApps(); }
         });
         navigation = new CardNavigation(new ArrayList<>(primaryCards.keySet()));
-        ArrayList<String> opened = new ArrayList<>();
-        try {
-            JSONArray saved = new JSONArray(getPreferences(MODE_PRIVATE).getString("opened_cards", "[]"));
-            for (int i = 0; i < saved.length(); i++) opened.add(saved.getString(i));
-        } catch (org.json.JSONException ignored) { }
-        navigation.restoreOpened(opened);
+        // Active task cards come from their owners, never from a recent-app cache.
+        // Older builds promoted every visited feature; discard that derived state.
+        getPreferences(MODE_PRIVATE).edit().remove("opened_cards").apply();
         navigation.select(0);
     }
 
@@ -509,15 +505,8 @@ public final class HomeActivity extends Activity {
         primaryCards.put(id, new Entry(id, title, "", color, glyph, action));
     }
 
-    private void markOpened(String id) {
-        navigation.open(id);
-        persistOpened();
-        if (page == Page.DECK) showDeck(false);
-    }
-
-    private void persistOpened() {
-        getPreferences(MODE_PRIVATE).edit().putString("opened_cards",
-                new JSONArray(navigation.openedIds()).toString()).apply();
+    private void visitFeature(String id) {
+        navigation.visit(id);
     }
 
     private void showHome() {
@@ -567,7 +556,7 @@ public final class HomeActivity extends Activity {
             @Override public void onDismiss(int index) {
                 if (page != Page.DECK || index < 0 || index >= visibleEntries.size()) return;
                 if ("timer".equals(visibleEntries.get(index).id)) { handleTimerAction("cancel_timer"); return; }
-                navigation.close(visibleEntries.get(index).id); persistOpened(); showDeck(false);
+                navigation.close(visibleEntries.get(index).id); showDeck(false);
                 getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CONFIRM);
             }
         });
@@ -753,7 +742,7 @@ public final class HomeActivity extends Activity {
         boolean exists = snapshot.phase != TimerState.Phase.NONE;
         if (exists == navigation.isOpened("timer")) return false;
         if (exists) navigation.open("timer"); else navigation.close("timer");
-        persistOpened();
+
         return true;
     }
 
@@ -787,7 +776,7 @@ public final class HomeActivity extends Activity {
                 if (!resumed || !hasWindowFocus()) return;
                 try {
                     timerStore.start(durationMillis);
-                    navigation.open("timer"); persistOpened();
+                    navigation.open("timer");
                     showDeck(true);
                 } catch (RuntimeException error) {
                     showError(error.getMessage() == null ? "Timer couldn't start" : error.getMessage());
@@ -802,7 +791,7 @@ public final class HomeActivity extends Activity {
     private void showTimerResult() {
         TimerStore.Snapshot snapshot = timerSnapshot();
         if (snapshot == null || snapshot.phase == TimerState.Phase.NONE) { showTimerSetup(); return; }
-        navigation.open("timer"); persistOpened(); showDeck(false);
+        navigation.open("timer"); showDeck(false);
     }
 
     private void handleTimerAction(String action) {
@@ -810,7 +799,7 @@ public final class HomeActivity extends Activity {
         try {
             TimerStore.Snapshot current = timerStore.snapshot();
             if ("cancel_timer".equals(action)) {
-                timerStore.cancel(); navigation.close("timer"); persistOpened(); showDeck(false);
+                timerStore.cancel(); navigation.close("timer"); showDeck(false);
                 return;
             }
             if ("pause_timer".equals(action) && current.phase == TimerState.Phase.RUNNING) timerStore.pause();
@@ -1244,7 +1233,10 @@ public final class HomeActivity extends Activity {
         if (cardTransition != null) { cancelCardTransition(true); return; }
         if (cameraScreen != null) { cameraScreen.onBackPressed(); return; }
         if (quickSettings.isVisible()) { quickSettings.dismiss(); return; }
-        if (recorderOverlay.isVisible()) { recorderOverlay.abortAndDismiss(); returnFromFeature("recorder"); return; }
+        if (recorderOverlay.isVisible()) {
+            if (recorderOverlay.handleBack()) return;
+            recorderOverlay.abortAndDismiss(); returnFromFeature("recorder"); return;
+        }
         if (hardwarePage != null && hardwarePage.handleBack()) return;
         hideKeyboard(); savedSelection[page.ordinal()] = selection;
         if (page == Page.UTILITIES) showApps();
@@ -1270,7 +1262,7 @@ public final class HomeActivity extends Activity {
         controlsHandler.removeCallbacks(timerTick);
         hardwarePage = null;
         cameraReturnHome = page == Page.HOME || page == Page.IDLE;
-        markOpened("camera");
+        visitFeature("camera");
         recorderOverlay.abortAndDismiss(); quickSettings.dismiss();
         gestures.cancel(); hardware.stop();
         page = Page.CAMERA;
@@ -1301,7 +1293,7 @@ public final class HomeActivity extends Activity {
         Intent musicCategory = new Intent(Intent.ACTION_MAIN)
                 .addCategory("android.intent.category.APP_MUSIC");
         if (launchPackageQuietly("org.akanework.gramophone")
-                || launchPackage("com.android.music", musicCategory, "No music app is available")) markOpened("music");
+                || launchPackage("com.android.music", musicCategory, "No music app is available")) visitFeature("music");
     }
 
     private boolean launchPackage(String packageName, Intent fallback, String error) {

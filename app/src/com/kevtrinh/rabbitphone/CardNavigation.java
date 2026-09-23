@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Content-independent card order: opened cards sit above the remaining hand. */
+/** Active task cards sit above a stable feature catalog. Visiting a feature is separate. */
 public final class CardNavigation {
     private final ArrayList<String> catalog = new ArrayList<String>();
     private final ArrayList<String> opened = new ArrayList<String>();
@@ -43,6 +43,12 @@ public final class CardNavigation {
     }
 
     public void move(int delta) { select(selectedIndex() + delta); }
+
+    public boolean visit(String id) {
+        if (!catalog.contains(id)) return false;
+        selected = id;
+        return true;
+    }
 
     public boolean open(String id) {
         if (!catalog.contains(id)) return false;
