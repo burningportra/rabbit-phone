@@ -220,6 +220,29 @@ main-surface rendering; it is not a full CRUD, call, SMS or media certification.
 Per-device receipts and screenshots are retained in ignored `evidence/`. Public
 source does not include those logs, identifiers, signing keys, or media.
 
+## Screen-fill correction in 0.11
+
+The launcher now uses 24 px side margins on the 480×640 R1 display, with 432 px
+cards and feature pages. Home has a larger clock and rabbit, and Quick Settings
+uses the screen height with matching slider and dismissal touch regions. This
+corrects the earlier inset interpretation of the demo; device density remains
+190 and physical resolution remains 480×640.
+
+The signed build and host checks passed, including native sanitizers, 15 gesture
+cases, 15 timer-state groups, card navigation and 68 Python tests. All 20
+active-card device assertions passed with the larger timer bounds and 16 px
+next-card cue. Quick Settings brightness/volume changes, reopening, app-restart
+persistence and restoration passed. Saved notes remained unchanged and the
+microphone stayed idle. No hardware helper, media backend or system-profile
+changes are part of this sizing correction.
+
+Final screenshots were inspected on the device for Home, the catalog, active
+Timer, both Timer setup modes, Translator, Gallery grid/viewer, Recorder
+library/detail/ready, Quick Settings and Settings. Settings subtitles and bottom
+controls fit without clipping. The installed APK matched the signed build hash;
+all ten existing notes, media volume and display settings were preserved. The
+visual pass opened existing media details without playback or capture.
+
 ## Important boundaries
 
 - Runtime haptics, microphone quality and physical feel are separate from a

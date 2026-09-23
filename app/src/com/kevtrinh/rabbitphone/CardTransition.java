@@ -54,7 +54,7 @@ public final class CardTransition extends FrameLayout {
         if (header != null) {
             header.setAlpha(0f);
             addView(header, new FrameLayout.LayoutParams(-1,
-                    Math.round(96f * context.getResources().getDisplayMetrics().widthPixels / 480f)));
+                    Math.round(80f * context.getResources().getDisplayMetrics().widthPixels / 480f)));
         }
     }
 
@@ -175,8 +175,8 @@ public final class CardTransition extends FrameLayout {
             if (scale <= 0f) return;
             float ox = (getWidth() - 480f * scale) / 2f, oy = (getHeight() - 640f * scale) / 2f;
             // Feature entry uses a centered face, distinct from a live card in the hand.
-            RectF full = new RectF(ox + 88f * scale, oy + 118f * scale,
-                    ox + 388f * scale, oy + 508f * scale);
+            RectF full = new RectF(ox + 24f * scale, oy + 96f * scale,
+                    ox + 456f * scale, oy + 596f * scale);
             float alpha;
             if (!exiting) {
                 float growth = ease(elapsed / 120f);
@@ -184,7 +184,7 @@ public final class CardTransition extends FrameLayout {
                         mix(source.right, full.right, growth), mix(source.bottom, full.bottom, growth));
                 alpha = elapsed < 600f ? 1f : 1f - clamp((elapsed - 600f) / 120f);
                 paint.setColor(Color.BLACK); paint.setAlpha(Math.round(255f * growth * alpha));
-                canvas.drawRect(0, oy + 112f * scale, getWidth(), getHeight(), paint);
+                canvas.drawRect(0, oy + 84f * scale, getWidth(), getHeight(), paint);
             } else {
                 float arriving = ease((elapsed - 80f) / 180f);
                 float departing = ease((elapsed - 1050f) / 150f);
@@ -194,14 +194,14 @@ public final class CardTransition extends FrameLayout {
                         full.centerX() + halfWidth, full.centerY() + halfHeight);
                 alpha = clamp((elapsed - 80f) / 120f) * (1f - departing);
                 paint.setColor(Color.BLACK); paint.setAlpha(Math.round(255f * alpha));
-                canvas.drawRect(0, oy + 112f * scale, getWidth(), getHeight(), paint);
+                canvas.drawRect(0, oy + 84f * scale, getWidth(), getHeight(), paint);
             }
             int layer = canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), Math.round(255f * alpha));
             renderer.drawTransitionFace(canvas, card, bounds);
-            if (exiting && bounds.height() >= 380f * scale) {
+            if (exiting && bounds.height() >= 490f * scale) {
                 paint.setColor(cueColor); paint.setAlpha(255);
-                canvas.drawRoundRect(bounds.left + 4f * scale, bounds.bottom + 30f * scale,
-                        bounds.right - 4f * scale, bounds.bottom + 42f * scale, 4f * scale, 4f * scale, paint);
+                canvas.drawRoundRect(bounds.left + 4f * scale, bounds.bottom + 20f * scale,
+                        bounds.right - 4f * scale, bounds.bottom + 36f * scale, 4f * scale, 4f * scale, paint);
             }
             canvas.restoreToCount(layer);
         }

@@ -30,7 +30,7 @@ public final class RabbitHomeView extends View {
     private static final int MAX_MASCOT_BYTES = 262_144;
     // Original guide PNG, with its outer border/blank canvas excluded only while drawing.
     private final Rect mascotSource = new Rect(248, 176, 768, 868);
-    private final RectF mascotDestination = new RectF(170f, 216.85f, 310f, 403.15f);
+    private final RectF mascotDestination = new RectF(100f, 244f, 380f, 616.6f);
     private final Bitmap privateMascot;
     private String time = "--:--";
     private int battery = -1;
@@ -77,12 +77,16 @@ public final class RabbitHomeView extends View {
             canvas.drawBitmap(privateMascot, mascotSource, mascotDestination, paint);
         }
         paint.setColor(0xfff5efe1); paint.setStyle(Paint.Style.FILL);
-        paint.setTextAlign(Paint.Align.CENTER); paint.setTextSize(24);
-        canvas.drawText(battery < 0 ? "--%" : battery + "%", 226, 145, paint);
-        drawBattery(canvas, 269, 127, battery);
-        paint.setTextSize(78); paint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText(time, 240, 230, paint);
-        if (privateMascot == null) drawRabbit(canvas, 240, 316, .82f);
+        paint.setTextAlign(Paint.Align.CENTER); paint.setTextSize(30);
+        canvas.drawText(battery < 0 ? "--%" : battery + "%", 212, 84, paint);
+        int batteryShape = canvas.save();
+        canvas.translate(260, 64); canvas.scale(1.35f, 1.35f);
+        drawBattery(canvas, 0, 0, battery); canvas.restoreToCount(batteryShape);
+        paint.setTextSize(144); paint.setTextAlign(Paint.Align.CENTER);
+        float timeWidth = paint.measureText(time);
+        if (timeWidth > 432f) paint.setTextSize(144f * 432f / timeWidth);
+        canvas.drawText(time, 240, 220, paint);
+        if (privateMascot == null) drawRabbit(canvas, 254, 446, 1.6f);
         canvas.restoreToCount(save);
     }
 

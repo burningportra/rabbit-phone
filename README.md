@@ -256,6 +256,11 @@ available. The app reconnects while foreground after the helper returns.
 
 ## Verification and references
 
+Version 0.11 expands the launcher to use the R1's 480×640 display: 432 px cards
+and feature pages, 24 px side margins, larger Home artwork and clock, and a
+full-height Quick Settings layout. The screenshots below predate that sizing
+correction; private on-device evidence is kept outside Git.
+
 ![Rabbit Phone home screen](docs/home.png)
 
 ![Reel-to-reel recording screen](docs/recorder.png)

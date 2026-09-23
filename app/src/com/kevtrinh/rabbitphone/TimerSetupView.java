@@ -38,6 +38,7 @@ public final class TimerSetupView extends ViewGroup implements HardwarePage {
         customButton = control("+", "Custom timer", new Runnable() {
             @Override public void run() { showCustom(); }
         });
+        customButton.setTextSize(TypedValue.COMPLEX_UNIT_PX, 40);
         hint = label("", 20, MUTED);
         hint.setGravity(Gravity.CENTER);
         addView(heading); addView(customButton); addView(hint);
@@ -49,6 +50,7 @@ public final class TimerSetupView extends ViewGroup implements HardwarePage {
                         @Override public void run() { host.onStart(MINUTES[index] * 60_000L); }
                     });
             presets[i].setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+            presets[i].setTextSize(TypedValue.COMPLEX_UNIT_PX, 34);
             addView(presets[i]);
         }
         String[] units = {"hours", "minutes", "seconds"};
@@ -61,11 +63,14 @@ public final class TimerSetupView extends ViewGroup implements HardwarePage {
             minus[i] = control("−", "Decrease " + units[i], new Runnable() {
                 @Override public void run() { selectField(index); changeValue(index, -1); }
             });
+            plus[i].setTextSize(TypedValue.COMPLEX_UNIT_PX, 40);
+            minus[i].setTextSize(TypedValue.COMPLEX_UNIT_PX, 40);
             addView(fields[i]); addView(plus[i]); addView(minus[i]);
         }
         start = control("start", "Start custom timer", new Runnable() {
             @Override public void run() { startCustom(); }
         });
+        start.setTextSize(TypedValue.COMPLEX_UNIT_PX, 36);
         addView(start);
         updateMode();
     }
@@ -189,12 +194,21 @@ public final class TimerSetupView extends ViewGroup implements HardwarePage {
         setMeasuredDimension(width, height);
         scale = Math.min(width / 480f, height / 640f);
         originX = (width - 480 * scale) / 2f; originY = (height - 640 * scale) / 2f;
-        measure(heading, 280, 68); measure(customButton, 64, 64); measure(hint, 432, 50);
-        for (TextView preset : presets) measure(preset, 384, 58);
-        for (int i = 0; i < fields.length; i++) {
-            measure(fields[i], 112, 122); measure(plus[i], 112, 58); measure(minus[i], 112, 58);
+        heading.setTextSize(TypedValue.COMPLEX_UNIT_PX, 46 * scale);
+        customButton.setTextSize(TypedValue.COMPLEX_UNIT_PX, 40 * scale);
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_PX, 20 * scale);
+        start.setTextSize(TypedValue.COMPLEX_UNIT_PX, 36 * scale);
+        measure(heading, 296, 64); measure(customButton, 64, 64); measure(hint, 432, 58);
+        for (TextView preset : presets) {
+            preset.setTextSize(TypedValue.COMPLEX_UNIT_PX, 34 * scale);
+            measure(preset, 432, 64);
         }
-        measure(start, 384, 66);
+        for (int i = 0; i < fields.length; i++) {
+            plus[i].setTextSize(TypedValue.COMPLEX_UNIT_PX, 40 * scale);
+            minus[i].setTextSize(TypedValue.COMPLEX_UNIT_PX, 40 * scale);
+            measure(fields[i], 136, 148); measure(plus[i], 136, 60); measure(minus[i], 136, 60);
+        }
+        measure(start, 432, 72);
     }
 
     private void place(View view, int x, int y) {
@@ -203,22 +217,22 @@ public final class TimerSetupView extends ViewGroup implements HardwarePage {
     }
 
     @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        place(heading, 94, 105); place(customButton, 368, 108);
-        for (int i = 0; i < presets.length; i++) place(presets[i], 48, 198 + i * 58);
+        place(heading, 72, 96); place(customButton, 392, 96);
+        for (int i = 0; i < presets.length; i++) place(presets[i], 24, 176 + i * 64);
         for (int i = 0; i < fields.length; i++) {
-            place(plus[i], 48 + i * 136, 209); place(fields[i], 48 + i * 136, 269);
-            place(minus[i], 48 + i * 136, 392);
+            place(plus[i], 24 + i * 148, 176); place(fields[i], 24 + i * 148, 240);
+            place(minus[i], 24 + i * 148, 392);
         }
-        place(start, 48, 472); place(hint, 24, 554);
+        place(start, 24, 474); place(hint, 24, 558);
     }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         int save = canvas.save(); canvas.translate(originX, originY); canvas.scale(scale, scale);
         paint.setColor(ACCENT); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(3.5f);
-        canvas.drawCircle(64, 139, 14, paint); canvas.drawLine(64, 139, 70, 132, paint);
-        canvas.drawLine(60, 119, 68, 119, paint); canvas.drawLine(64, 119, 64, 125, paint);
-        canvas.drawLine(53, 122, 50, 126, paint); canvas.drawLine(75, 122, 78, 126, paint);
+        canvas.drawCircle(44, 128, 14, paint); canvas.drawLine(44, 128, 50, 121, paint);
+        canvas.drawLine(40, 108, 48, 108, paint); canvas.drawLine(44, 108, 44, 114, paint);
+        canvas.drawLine(33, 111, 30, 115, paint); canvas.drawLine(55, 111, 58, 115, paint);
         canvas.restoreToCount(save);
     }
 

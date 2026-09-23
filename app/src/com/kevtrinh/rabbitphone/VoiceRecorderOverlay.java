@@ -363,7 +363,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         actionScroll = null;
         page = new LinearLayout(activity);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(20), dp(26), dp(20), dp(14));
+        page.setPadding(px(24), px(12), px(24), px(18));
         root.addView(page, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
@@ -457,7 +457,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         addLibraryHeader();
         LinearLayout heading = new LinearLayout(activity);
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = referenceText("recorder", 44, RECORD_RED);
+        TextView title = referenceText("recorder", 48, RECORD_RED);
         GlyphDrawable mark = new GlyphDrawable(Glyph.RECORDER);
         mark.setColor(RECORD_RED); mark.setBounds(0, 0, px(30), px(30));
         title.setCompoundDrawables(mark, null, null, null); title.setCompoundDrawablePadding(px(10));
@@ -465,7 +465,9 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         PlainControl add = new PlainControl("+", "New voice note", 42, WHITE);
         heading.addView(add, new LinearLayout.LayoutParams(dp(44), -1));
         registerAction(add, new Runnable() { @Override public void run() { showReady(); } });
-        page.addView(heading, new LinearLayout.LayoutParams(-1, px(66)));
+        LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(-1, px(72));
+        headingParams.topMargin = px(16);
+        page.addView(heading, headingParams);
 
         actionScroll = new ScrollView(activity);
         actionScroll.setFillViewport(true);
@@ -507,8 +509,10 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         page.setContentDescription("Voice note details");
         setLibraryPadding();
         addLibraryHeader();
-        TextView title = referenceText("Voice note", 44, WHITE);
-        page.addView(title, new LinearLayout.LayoutParams(-1, px(70)));
+        TextView title = referenceText("Voice note", 48, WHITE);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, px(72));
+        titleParams.topMargin = px(16);
+        page.addView(title, titleParams);
         TextView date = referenceText(noteDate(savedFile), 22, MUTED);
         page.addView(date, new LinearLayout.LayoutParams(-1, px(48)));
         TextView duration = referenceText(savedDuration < 0 ? "Duration unavailable" : "Duration " + formatDuration(savedDuration), 23, RECORD_RED);
@@ -534,7 +538,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         if (playing) main.post(playbackTick);
     }
 
-    private void setLibraryPadding() { page.setPadding(px(48), px(42), px(48), px(18)); }
+    private void setLibraryPadding() { page.setPadding(px(24), 0, px(24), px(18)); }
 
     private String noteDate(File file) {
         return new SimpleDateFormat("MMM d, yyyy · h:mm:ss a", Locale.getDefault()).format(new Date(file.lastModified()));
@@ -568,7 +572,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         header.addView(headerTime, time);
         headerBattery = new RecorderBattery();
         header.addView(headerBattery, new FrameLayout.LayoutParams(px(32), px(18), Gravity.RIGHT | Gravity.CENTER_VERTICAL));
-        page.addView(header, new LinearLayout.LayoutParams(-1, dp(44)));
+        page.addView(header, new LinearLayout.LayoutParams(-1, px(80)));
         updateLibraryHeader();
     }
 
@@ -622,8 +626,8 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         deck = new TapeDeckView(activity);
         deck.setState(mode, position, duration, 0);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(200));
-        params.topMargin = dp(6);
-        params.bottomMargin = dp(8);
+        params.topMargin = px(2);
+        params.bottomMargin = px(4);
         page.addView(deck, params);
     }
 
@@ -641,7 +645,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         LinearLayout row = new LinearLayout(activity);
         row.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(64));
-        params.topMargin = dp(10);
+        params.topMargin = px(6);
         page.addView(row, params);
         return row;
     }
@@ -938,8 +942,8 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             setContentDescription("Open voice note, " + fullDate);
             LinearLayout labels = new LinearLayout(activity);
             labels.setOrientation(VERTICAL); labels.setGravity(Gravity.CENTER_VERTICAL);
-            TextView primary = referenceText(title, 32, WHITE);
-            TextView secondary = referenceText(date, 20, MUTED);
+            TextView primary = referenceText(title, 38, WHITE);
+            TextView secondary = referenceText(date, 22, MUTED);
             primary.setSingleLine(true); secondary.setSingleLine(true);
             labels.addView(primary); labels.addView(secondary);
             addView(labels, new LinearLayout.LayoutParams(0, -1, 1f));

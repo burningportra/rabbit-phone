@@ -196,12 +196,12 @@ public final class QuickSettingsOverlay {
             scale = Math.max(0f, Math.min(width / 480f, height / 640f));
             originX = (width - 480 * scale) / 2f;
             originY = (height - 640 * scale) / 2f;
-            measureChildExact(status, Math.round(384 * scale), Math.round(48 * scale));
-            int sliderHeight = Math.max(dp(44), Math.round(105 * scale));
-            measureChildExact(brightness, Math.round(384 * scale), sliderHeight);
-            measureChildExact(volume, Math.round(384 * scale), sliderHeight);
+            measureChildExact(status, Math.round(432 * scale), Math.round(80 * scale));
+            int sliderHeight = Math.max(dp(44), Math.round(112 * scale));
+            measureChildExact(brightness, Math.round(432 * scale), sliderHeight);
+            measureChildExact(volume, Math.round(432 * scale), sliderHeight);
             for (Shortcut shortcut : shortcuts)
-                measureChildExact(shortcut, Math.max(dp(56), Math.round(96 * scale)), Math.max(dp(56), Math.round(64 * scale)));
+                measureChildExact(shortcut, Math.max(dp(56), Math.round(108 * scale)), Math.max(dp(56), Math.round(112 * scale)));
         }
 
         private void measureChildExact(View child, int width, int height) {
@@ -215,29 +215,29 @@ public final class QuickSettingsOverlay {
         }
 
         @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-            place(status, 48, 35); place(brightness, 48, 100); place(volume, 48, 217);
-            for (int i = 0; i < shortcuts.length; i++) place(shortcuts[i], 48 + 96 * i, 340);
+            place(status, 24, 0); place(brightness, 24, 96); place(volume, 24, 224);
+            for (int i = 0; i < shortcuts.length; i++) place(shortcuts[i], 24 + 108 * i, 384);
         }
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             grabPaint.setStrokeWidth(Math.max(1f, 2 * scale));
-            canvas.drawLine(originX + 192 * scale, originY + 423 * scale,
-                    originX + 288 * scale, originY + 423 * scale, grabPaint);
+            canvas.drawLine(originX + 192 * scale, originY + 580 * scale,
+                    originX + 288 * scale, originY + 580 * scale, grabPaint);
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
             int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
                 grabPointer = -1;
-                if (event.getPointerCount() == 1 && event.getY() >= originY + 410 * scale) {
+                if (event.getPointerCount() == 1 && event.getY() >= originY + 544 * scale) {
                     grabPointer = event.getPointerId(0);
                     grabX = event.getX(); grabY = event.getY();
                     if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                 }
             } else if (action == MotionEvent.ACTION_UP) {
                 int index = event.findPointerIndex(grabPointer);
-                boolean close = index >= 0 && event.getY(index) - grabY <= -48 * Math.max(.01f, scale)
+                boolean close = index >= 0 && event.getY(index) - grabY <= -56 * Math.max(.01f, scale)
                         && grabY - event.getY(index) > Math.abs(event.getX(index) - grabX) * 1.15f;
                 cancelGrab();
                 if (close && panel == this) dismiss();
@@ -415,7 +415,7 @@ public final class QuickSettingsOverlay {
             super.onDraw(canvas);
             float width = getWidth(), height = getHeight();
             if (width <= 0 || height <= 0) return;
-            float radius = Math.min(16f * width / 384f, height / 2f);
+            float radius = Math.min(18f * width / 432f, height / 2f);
             bounds.set(0, 0, width, height);
             clip.reset(); clip.addRoundRect(bounds, radius, radius, Path.Direction.CW);
             int save = canvas.save();
@@ -425,6 +425,19 @@ public final class QuickSettingsOverlay {
             paint.setColor(ORANGE);
             if (known) canvas.drawRect(0, 0, width * value / maximum, height, paint);
             canvas.restoreToCount(save);
+            if (known) {
+                paint.setStyle(Paint.Style.FILL); paint.setColor(WHITE);
+                paint.setTypeface(RabbitTypography.regular(activity));
+                paint.setTextSize(Math.min(dp(22), height * .24f));
+                paint.setTextAlign(Paint.Align.LEFT);
+                paint.setColor(value * 1f / maximum > .45f ? Color.BLACK : WHITE);
+                canvas.drawText(brightness ? "Brightness" : "Volume", width * .16f,
+                        height / 2f - (paint.ascent() + paint.descent()) / 2f, paint);
+                paint.setTextAlign(Paint.Align.RIGHT);
+                paint.setColor(value * 1f / maximum > .82f ? Color.BLACK : WHITE);
+                canvas.drawText(Math.round(value * 100f / maximum) + "%", width - width * .045f,
+                        height / 2f - (paint.ascent() + paint.descent()) / 2f, paint);
+            }
             save = canvas.save();
             float size = Math.min(height * .42f, width * .1f);
             canvas.translate(width * .057f, (height - size) / 2f);
@@ -477,7 +490,7 @@ public final class QuickSettingsOverlay {
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float size = Math.min(dp(24), Math.min(getWidth(), getHeight()) * .6f);
+            float size = Math.min(dp(32), Math.min(getWidth(), getHeight()) * .62f);
             if (size <= 0) return;
             int save = canvas.save();
             canvas.translate((getWidth() - size) / 2f, (getHeight() - size) / 2f);
@@ -511,7 +524,7 @@ public final class QuickSettingsOverlay {
             canvas.restoreToCount(save);
             if (showSelection && selected == index) {
                 paint.setColor(ORANGE); paint.setStyle(Paint.Style.FILL);
-                canvas.drawCircle(getWidth() / 2f, getHeight() - dp(5), dp(1.5f), paint);
+                canvas.drawCircle(getWidth() / 2f, getHeight() - dp(10), dp(2.5f), paint);
             }
         }
     }
@@ -551,20 +564,20 @@ public final class QuickSettingsOverlay {
             super.onDraw(canvas);
             if (getWidth() <= 0 || getHeight() <= 0) return;
             int save = canvas.save();
-            canvas.scale(getWidth() / 384f, getHeight() / 48f);
-            paint.setStyle(Paint.Style.FILL); paint.setColor(WHITE); paint.setTextSize(25);
+            canvas.scale(getWidth() / 432f, getHeight() / 80f);
+            paint.setStyle(Paint.Style.FILL); paint.setColor(WHITE); paint.setTextSize(29);
             paint.setTextAlign(Paint.Align.CENTER); paint.getFontMetrics(metrics);
-            canvas.drawText(clock, 192, 24 - (metrics.ascent + metrics.descent) / 2f, paint);
+            canvas.drawText(clock, 216, 40 - (metrics.ascent + metrics.descent) / 2f, paint);
             paint.setColor(wifi ? WHITE : 0xff444444); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2.5f);
-            arc.set(-3, 12, 29, 44); canvas.drawArc(arc, 225, 90, false, paint);
-            arc.set(3, 18, 23, 38); canvas.drawArc(arc, 225, 90, false, paint);
-            paint.setStyle(Paint.Style.FILL); canvas.drawCircle(13, 29, 2, paint);
+            arc.set(0, 24, 32, 56); canvas.drawArc(arc, 225, 90, false, paint);
+            arc.set(6, 30, 26, 50); canvas.drawArc(arc, 225, 90, false, paint);
+            paint.setStyle(Paint.Style.FILL); canvas.drawCircle(16, 41, 2, paint);
             paint.setColor(cellular ? WHITE : 0xff444444);
-            for (int i = 0; i < 4; i++) canvas.drawRect(34 + i * 6, 31 - (i + 1) * 5, 37 + i * 6, 31, paint);
+            for (int i = 0; i < 4; i++) canvas.drawRect(38 + i * 6, 44 - (i + 1) * 5, 41 + i * 6, 44, paint);
             paint.setColor(WHITE); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2);
-            canvas.drawRoundRect(350, 17, 380, 31, 3, 3, paint);
-            paint.setStyle(Paint.Style.FILL); canvas.drawRect(381, 21, 384, 27, paint);
-            if (battery >= 0) canvas.drawRoundRect(353, 20, 353 + 24 * battery / 100f, 28, 1, 1, paint);
+            canvas.drawRoundRect(398, 33, 428, 47, 3, 3, paint);
+            paint.setStyle(Paint.Style.FILL); canvas.drawRect(429, 37, 432, 43, paint);
+            if (battery >= 0) canvas.drawRoundRect(401, 36, 401 + 24 * battery / 100f, 44, 1, 1, paint);
             canvas.restoreToCount(save);
         }
     }

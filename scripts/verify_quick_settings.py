@@ -14,8 +14,8 @@ from device import select_r1
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = 'com.kevtrinh.rabbitphone'
 NOTES = '/data/user/0/' + PACKAGE + '/files/voice-notes'
-SLIDER_LEFT, SLIDER_RIGHT = 48, 432
-BRIGHTNESS_Y, VOLUME_Y = 152, 269
+SLIDER_LEFT, SLIDER_RIGHT = 24, 456
+BRIGHTNESS_Y, VOLUME_Y = 152, 280
 
 
 class ADBDevice:
@@ -180,7 +180,7 @@ def main():
         receipt('microphone_remains_idle_after_changes', not device.microphone_active())
         device.screenshot(evidence / 'changed.png')
 
-        swipe(device, 240, 450, 240, 280)
+        swipe(device, 240, 580, 240, 380)
         receipt('grab_swipe_dismisses_quick_settings', 'Quick settings' not in wait_for_text(device, 'Quick settings', False))
         open_quick_settings(device)
         receipt('reopen_keeps_brightness', brightness(device) == last_brightness)

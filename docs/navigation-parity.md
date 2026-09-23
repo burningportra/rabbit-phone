@@ -67,12 +67,13 @@ choices informed by the footage, not yet a device-timing receipt.
 ## Feature transitions, Translator and recorder navigation in 0.9.0
 
 Opening a card expands its face before revealing the feature in the same window.
-Back recreates the full face and then reaches Home. The settled active-card
-envelope is a centered 300×390 rectangle at approximately `(88, 118)` in the
-480×640 display, with a rotated bottom label. The next-card cue occupies roughly
-`y=538..550` and appears on feature return; Translator's opening face has no
-cue. An earlier `190px` top estimate came from the timer pop-in frame and is not
-the settled geometry.
+Back recreates the full face and then reaches Home. Version 0.9 used a centered
+300×390 card at `(88, 118)`, which left too much unused space on the actual
+480×640 display. Version 0.11 supersedes that inset interpretation: the settled
+face is 432×500 at `(24, 96)`, with a rotated bottom label, and the next-card cue
+occupies `y=616..632`. Translator's opening face has no cue. The larger geometry
+implements the owner's screen-fill correction rather than claiming a newly
+measured one-to-one reference match.
 
 Translator now has a native language-pair setup with a wheel-operated chooser,
 persisted preferences, and a Back path from chooser to setup before returning
@@ -142,7 +143,7 @@ owner for feature pages.
 
 The official demo at 250–254 seconds shows a running five-minute timer as a
 blue card with a live countdown, duration caption and sparse cancel/pause
-controls. Its settled face uses the shared normalized `(88, 118, 300, 390)`
+controls. Its settled face now uses the shared normalized `(24, 96, 432, 500)`
 active-card envelope, with the cue beneath it; the 250-second pop-in frame is
 not the final placement. Timer digits and the two controls are rendered from real,
 persisted timer state. Preview updates preserve scrolling, touch tracking and

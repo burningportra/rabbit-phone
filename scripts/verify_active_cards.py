@@ -157,8 +157,8 @@ def main():
                              'Paused active Timer card did not settle')
         timer = card_node(paused_ui, 'timer')
         camera = card_node(paused_ui, 'camera')
-        check('active_timer_accessibility_bounds', near(node_bounds(timer), (88, 118, 388, 508)))
-        check('next_camera_cue_is_twelve_pixels', near(node_bounds(camera), (88, 538, 388, 550)))
+        check('active_timer_accessibility_bounds', near(node_bounds(timer), (24, 96, 456, 596)))
+        check('next_camera_cue_is_sixteen_pixels', near(node_bounds(camera), (24, 616, 456, 632)))
         visible_catalog = [node.get('text', '').lower()
                            for node in ET.fromstring(paused_ui).iter('node')
                            if node.get('text', '').lower() in CATALOG_START]

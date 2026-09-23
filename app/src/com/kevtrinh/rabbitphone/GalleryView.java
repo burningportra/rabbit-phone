@@ -402,8 +402,8 @@ public final class GalleryView extends ViewGroup implements HardwarePage {
             ViewGroup.LayoutParams previous = getLayoutParams();
             android.widget.AbsListView.LayoutParams params = previous instanceof android.widget.AbsListView.LayoutParams
                     ? (android.widget.AbsListView.LayoutParams) previous
-                    : new android.widget.AbsListView.LayoutParams(-1, Math.round(122.67f * scale));
-            params.width = -1; params.height = Math.round(122.67f * scale);
+                    : new android.widget.AbsListView.LayoutParams(-1, Math.round(138.67f * scale));
+            params.width = -1; params.height = Math.round(138.67f * scale);
             setLayoutParams(params);
             setContentDescription("Photo " + value.name);
             setBackgroundColor(0xff171719); fallback.setText("photo");
@@ -472,10 +472,10 @@ public final class GalleryView extends ViewGroup implements HardwarePage {
         void choose(int value) { if (value != choice) tick(); choice = value; cancel.setTextColor(choice == 0 ? CYAN : WHITE); confirm.setTextColor(choice == 1 ? CYAN : WHITE); cancel.setSelected(choice == 0); confirm.setSelected(choice == 1); }
         @Override protected void onMeasure(int w, int h) {
             setMeasuredDimension(MeasureSpec.getSize(w), MeasureSpec.getSize(h));
-            measureAt(question, 384, 60); measureAt(name, 384, 108); measureAt(cancel, 180, 70); measureAt(confirm, 180, 70);
+            measureAt(question, 432, 60); measureAt(name, 432, 108); measureAt(cancel, 204, 70); measureAt(confirm, 204, 70);
         }
         @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            place(question, 48, 205); place(name, 48, 278); place(cancel, 48, 418); place(confirm, 252, 418);
+            place(question, 24, 205); place(name, 24, 278); place(cancel, 24, 418); place(confirm, 252, 418);
         }
     }
 
@@ -506,29 +506,29 @@ public final class GalleryView extends ViewGroup implements HardwarePage {
     @Override protected void onMeasure(int w, int h) {
         int width = MeasureSpec.getSize(w), height = MeasureSpec.getSize(h); setMeasuredDimension(width, height);
         scale = Math.min(width / 480f, height / 640f); originX = (width - 480 * scale) / 2; originY = (height - 640 * scale) / 2;
-        heading.setTextSize(TypedValue.COMPLEX_UNIT_PX, 42 * scale);
-        favorites.setTextSize(TypedValue.COMPLEX_UNIT_PX, 30 * scale);
-        caption.setTextSize(TypedValue.COMPLEX_UNIT_PX, 18 * scale);
-        measureAt(heading, 346, 60); measureAt(favorites, 384, 56);
+        heading.setTextSize(TypedValue.COMPLEX_UNIT_PX, 46 * scale);
+        favorites.setTextSize(TypedValue.COMPLEX_UNIT_PX, 32 * scale);
+        caption.setTextSize(TypedValue.COMPLEX_UNIT_PX, 19 * scale);
+        measureAt(heading, 384, 64); measureAt(favorites, 432, 56);
         grid.setHorizontalSpacing(Math.round(8 * scale)); grid.setVerticalSpacing(Math.round(8 * scale));
-        measureAt(grid, 384, inFavorites ? 402 : 338);
-        measureAt(viewer, 384, 304); measureAt(caption, 400, 52);
-        measureAt(favorite, 144, 64); measureAt(delete, 144, 64); measureAt(message, 384, 150);
+        measureAt(grid, 432, inFavorites ? 450 : 386);
+        measureAt(viewer, 432, 350); measureAt(caption, 432, 44);
+        measureAt(favorite, 204, 56); measureAt(delete, 204, 56); measureAt(message, 432, 160);
         if (prompt != null) prompt.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
     }
     @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
-        place(heading, 94, 122); place(favorites, 48, 202); place(grid, 48, inFavorites ? 206 : 270);
-        place(viewer, 48, 200); place(caption, 40, 506); place(favorite, 64, 562); place(delete, 272, 562);
-        place(message, 48, 314); if (prompt != null) prompt.layout(0, 0, getWidth(), getHeight());
+        place(heading, 72, 96); place(favorites, 24, 166); place(grid, 24, inFavorites ? 166 : 230);
+        place(viewer, 24, 166); place(caption, 24, 516); place(favorite, 24, 560); place(delete, 252, 560);
+        place(message, 24, 272); if (prompt != null) prompt.layout(0, 0, getWidth(), getHeight());
     }
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas); int save = canvas.save(); canvas.translate(originX, originY); canvas.scale(scale, scale);
         paint.setColor(CYAN); paint.setStrokeWidth(2.5f); paint.setStyle(Paint.Style.STROKE);
-        canvas.drawRect(51, 140, 76, 167, paint); canvas.drawLine(54, 135, 74, 135, paint); canvas.drawLine(57, 130, 71, 130, paint);
-        canvas.drawRect(58, 149, 68, 159, paint); canvas.drawLine(63, 145, 63, 163, paint); canvas.drawLine(54, 154, 72, 154, paint);
+        canvas.drawRect(27, 114, 52, 141, paint); canvas.drawLine(30, 109, 50, 109, paint); canvas.drawLine(33, 104, 47, 104, paint);
+        canvas.drawRect(34, 123, 44, 133, paint); canvas.drawLine(39, 119, 39, 137, paint); canvas.drawLine(30, 128, 48, 128, paint);
         if (!inViewer && !inFavorites) {
             paint.setColor(wheelFocus && selected == 0 ? CYAN : MUTED);
-            canvas.drawLine(423, 222, 431, 230, paint); canvas.drawLine(431, 230, 423, 238, paint);
+            canvas.drawLine(444, 186, 452, 194, paint); canvas.drawLine(452, 194, 444, 202, paint);
         }
         paint.setStyle(Paint.Style.FILL); canvas.restoreToCount(save);
     }

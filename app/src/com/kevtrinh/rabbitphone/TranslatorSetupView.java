@@ -233,12 +233,12 @@ public final class TranslatorSetupView extends ViewGroup implements HardwarePage
         scale = Math.min(width / 480f, height / 640f);
         originX = (width - 480 * scale) / 2f;
         originY = (height - 640 * scale) / 2f;
-        measure(sourceField, 384, 108);
-        measure(targetField, 384, 108);
-        measure(continueControl, 384, 66);
-        pickerScroll.measure(MeasureSpec.makeMeasureSpec(Math.round(384 * scale), MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(Math.round(408 * scale), MeasureSpec.EXACTLY));
-        for (LanguageOption option : options) option.setTextSize(TypedValue.COMPLEX_UNIT_PX, 28 * scale);
+        measure(sourceField, 432, 122);
+        measure(targetField, 432, 122);
+        measure(continueControl, 432, 66);
+        pickerScroll.measure(MeasureSpec.makeMeasureSpec(Math.round(432 * scale), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(Math.round(452 * scale), MeasureSpec.EXACTLY));
+        for (LanguageOption option : options) option.setTextSize(TypedValue.COMPLEX_UNIT_PX, 32 * scale);
     }
 
     private void place(View view, int x, int y) {
@@ -247,10 +247,10 @@ public final class TranslatorSetupView extends ViewGroup implements HardwarePage
     }
 
     @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-        place(sourceField, 48, 202);
-        place(targetField, 48, 330);
-        place(continueControl, 48, 504);
-        place(pickerScroll, 48, 164);
+        place(sourceField, 24, 174);
+        place(targetField, 24, 312);
+        place(continueControl, 24, 550);
+        place(pickerScroll, 24, 164);
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -259,7 +259,7 @@ public final class TranslatorSetupView extends ViewGroup implements HardwarePage
         canvas.translate(originX, originY);
         canvas.scale(scale, scale);
         int glyph = canvas.save();
-        canvas.translate(48, 128); canvas.scale(1.2f, 1.2f);
+        canvas.translate(24, 104); canvas.scale(1.2f, 1.2f);
         paint.setColor(ACCENT); paint.setStyle(Paint.Style.FILL);
         canvas.drawRect(2, 10, 14, 29, paint); canvas.drawRect(17, 3, 30, 25, paint);
         paint.setColor(Color.BLACK); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(1.8f);
@@ -270,8 +270,8 @@ public final class TranslatorSetupView extends ViewGroup implements HardwarePage
         canvas.restoreToCount(glyph);
         paint.setColor(ACCENT); paint.setStyle(Paint.Style.FILL);
         paint.setTypeface(RabbitTypography.regular(getContext()));
-        paint.setTextAlign(Paint.Align.LEFT); paint.setTextSize(44);
-        canvas.drawText(mode == SETUP ? "translator" : "choose language", 104, 160, paint);
+        paint.setTextAlign(Paint.Align.LEFT); paint.setTextSize(46);
+        canvas.drawText(mode == SETUP ? "translator" : "choose language", 80, 145, paint);
         canvas.restoreToCount(save);
     }
 

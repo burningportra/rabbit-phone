@@ -566,7 +566,7 @@ public final class HomeActivity extends Activity {
             }
         });
         canvas.addView(cardDeck, new FrameLayout.LayoutParams(-1, -1));
-        canvas.addView(cardStatusHeader(back, WARM_WHITE), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
+        canvas.addView(cardStatusHeader(back, WARM_WHITE), new FrameLayout.LayoutParams(-1, Math.round(80 * screenScale())));
         installPage(canvas, false); updateClock(); updateStatus(); refreshTimerTick();
         if (reveal && ValueAnimator.areAnimatorsEnabled()) {
             cardDeck.setTranslationY(100 * screenScale()); cardDeck.setAlpha(.4f);
@@ -618,20 +618,21 @@ public final class HomeActivity extends Activity {
     private View statusHeader(boolean back, int tint) {
         FrameLayout header = new FrameLayout(this);
         clockView = text("", 22, tint, Typeface.NORMAL); clockView.setGravity(Gravity.CENTER);
+        clockView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 30f * screenScale());
         header.addView(clockView, new FrameLayout.LayoutParams(-1, -1));
         if (back) {
             View button = new BackControl(tint);
             header.addView(button, new FrameLayout.LayoutParams(Math.round(160 * screenScale()), -1, Gravity.LEFT));
         }
         batteryIcon = new BatteryIcon(this, tint);
-        FrameLayout.LayoutParams battery = new FrameLayout.LayoutParams(Math.round(30 * screenScale()), Math.round(16 * screenScale()), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        battery.rightMargin = Math.round(48 * screenScale()); header.addView(batteryIcon, battery);
+        FrameLayout.LayoutParams battery = new FrameLayout.LayoutParams(Math.round(34 * screenScale()), Math.round(18 * screenScale()), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        battery.rightMargin = Math.round(24 * screenScale()); header.addView(batteryIcon, battery);
         return header;
     }
 
     private View cardStatusHeader(boolean back, int tint) {
         View header = statusHeader(back, tint);
-        header.setTranslationY(36f * screenScale());
+        header.setTranslationY(0f);
         return header;
     }
 
@@ -725,7 +726,7 @@ public final class HomeActivity extends Activity {
         FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
         setHardwarePage(new GalleryView(this));
         root.addView(hardwarePage.getView(), new FrameLayout.LayoutParams(-1, -1));
-        root.addView(cardStatusHeader(true, 0xff25c8ed), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
+        root.addView(cardStatusHeader(true, 0xff25c8ed), new FrameLayout.LayoutParams(-1, Math.round(80 * screenScale())));
         installPage(root, false); updateClock(); updateStatus();
     }
 
@@ -746,7 +747,7 @@ public final class HomeActivity extends Activity {
             }
         }));
         root.addView(hardwarePage.getView(), new FrameLayout.LayoutParams(-1, -1));
-        root.addView(cardStatusHeader(true, 0xff02f719), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
+        root.addView(cardStatusHeader(true, 0xff02f719), new FrameLayout.LayoutParams(-1, Math.round(80 * screenScale())));
         installPage(root, false); updateClock(); updateStatus();
     }
 
@@ -809,7 +810,7 @@ public final class HomeActivity extends Activity {
             }
         }));
         root.addView(hardwarePage.getView(), new FrameLayout.LayoutParams(-1, -1));
-        root.addView(cardStatusHeader(true, 0xff6b63ff), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
+        root.addView(cardStatusHeader(true, 0xff6b63ff), new FrameLayout.LayoutParams(-1, Math.round(80 * screenScale())));
         installPage(root, false); updateClock(); updateStatus();
     }
 
@@ -1030,11 +1031,11 @@ public final class HomeActivity extends Activity {
             float s = screenScale(), y = getHeight() / 2f;
             paint.setColor(tint); paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(2.5f * s); paint.setStrokeCap(Paint.Cap.ROUND);
-            canvas.drawLine(48 * s, y, 66 * s, y, paint);
-            canvas.drawLine(48 * s, y, 56 * s, y - 8 * s, paint);
-            canvas.drawLine(48 * s, y, 56 * s, y + 8 * s, paint);
-            paint.setStyle(Paint.Style.FILL); paint.setTextSize(25 * s);
-            canvas.drawText("back", 74 * s, y + 8 * s, paint);
+            canvas.drawLine(24 * s, y, 44 * s, y, paint);
+            canvas.drawLine(24 * s, y, 33 * s, y - 9 * s, paint);
+            canvas.drawLine(24 * s, y, 33 * s, y + 9 * s, paint);
+            paint.setStyle(Paint.Style.FILL); paint.setTextSize(28 * s);
+            canvas.drawText("back", 54 * s, y + 9 * s, paint);
         }
     }
 
@@ -1114,8 +1115,8 @@ public final class HomeActivity extends Activity {
         row.setContentDescription(entry.detail.isEmpty() ? entry.label
                 : entry.label + ", " + entry.detail);
 
-        TextView label = text(entry.label, 20, WARM_WHITE, Typeface.BOLD);
-        TextView detail = text(entry.detail, 12, MUTED, Typeface.NORMAL);
+        TextView label = text(entry.label, 24, WARM_WHITE, Typeface.BOLD);
+        TextView detail = text(entry.detail, 14, MUTED, Typeface.NORMAL);
         if (entry.detail.isEmpty()) detail.setVisibility(View.GONE);
         row.addView(label);
         row.addView(detail);
