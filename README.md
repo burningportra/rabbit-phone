@@ -26,6 +26,9 @@ for the owner's device.
   There are no automatic calls or sent messages.
 - A built-in camera stays inside the Home window and supports front/rear rotation,
   explicit photo capture, and privacy parking. Photos go to `Pictures/Rabbit Phone`.
+- The translator card opens a native language-pair setup screen. Its local chooser
+  stores the pair; **Continue** opens Google Translate and does not claim to run
+  Rabbit's translation backend.
 - Holding the side button opens a reel-to-reel recorder inspired by Rabbit's
   Magic Recorder: red rotating reels, a real microphone level meter, elapsed
   timer and Power Grotesk type. Release saves a private voice
@@ -51,7 +54,7 @@ for the owner's device.
 | --- | --- | --- |
 | Wheel | Open the stack from Home, then browse with haptics | Up: front; down: rear |
 | Short side-button press | Sleep on Home; open the selected card in the stack | Take a photo |
-| Double press | Open camera | Return to launcher |
+| Double press | Open camera | Turn camera off; return destination is a local policy |
 | Hold, then release | Record and save a local voice note | Record and save a local voice note |
 | Five quick presses | Refresh the local interface | Refresh preview |
 | Eight quick presses | Power off | Power off |
@@ -155,19 +158,35 @@ updates to carry Power Grotesk or finite readability fixes while preserving app
 data. See [Theme and typography](docs/theme.md) for the private-font workflow,
 system palette, tracked app updates, lock wallpaper and exact rollback order.
 
+The Home mascot is a static native rendering, not Rabbit's idle 3D animation.
+The owner may optionally install Rabbit's unchanged public user-guide PNG into
+private app storage for this device only:
+
+```sh
+python3 scripts/install_mascot.py install
+python3 scripts/install_mascot.py restore
+```
+
+The installer verifies the pinned official image before writing, keeps the
+device-specific prior file outside Git, and restores it exactly. The image is
+never bundled in the APK or committed to this repository.
+
 ## Navigation verification
 
 The device checks exercise the visible UI and raw R1 wheel/power input paths:
 
 ```sh
 python3 scripts/verify_navigation.py --device-test
+python3 scripts/verify_card_flows.py --device-test --interruptions
 python3 scripts/verify_navigation_camera.py --device-test
 python3 scripts/verify_quick_settings.py --device-test
 python3 scripts/verify_timer.py --device-test --reboot
 python3 scripts/verify_timer.py --device-test --access-recovery
 ```
 
-The camera check opens its preview without taking photos. The quick-settings
+The card-flow check exercises Translator's language picker and the Translator,
+Timer and Recorder Back paths. Its optional interruption checks temporarily slow
+or disable Android animations, then restore the original setting. The camera check opens its preview without taking photos. The quick-settings
 check temporarily changes brightness and volume, verifies restart persistence,
 and restores its own changes. These navigation checks do not record or play notes. The full timer check sounds
 one short completion alert and, with `--reboot`, briefly restarts the R1; it refuses

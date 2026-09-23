@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from verify_recorder import Device, ROOT
 from verify_playback import wheel_down, volume, tap_node
 from verify_navigation import dump_ui, require
+from verify_card_flows import wait_for
 
 
 def main():
@@ -66,6 +67,14 @@ def main():
         check('camera_side_button_selects_settings', 'android settings' in dump_ui(d))
         d.shell('input', 'swipe', 240, 622, 240, 395, 300)
         check('camera_settings_returns_home', 'Rabbit home.' in dump_ui(d))
+        press(2); time.sleep(.85)
+        ui = wait_for(d, lambda value: 'Back to home' in value, 'Camera did not reopen')
+        camera_lease = d.lease()
+        back = next(n for n in ET.fromstring(ui).iter('node') if n.get('content-desc') == 'Back to home')
+        tap_node(d, back)
+        wait_for(d, lambda value: 'Rabbit home.' in value, 'Camera Back did not return Home')
+        check('camera_back_returns_home', True)
+        check('camera_back_reacquires_home_controls', d.lease() != camera_lease)
     finally:
         d.shell('cmd', 'statusbar', 'collapse')
         d.home()

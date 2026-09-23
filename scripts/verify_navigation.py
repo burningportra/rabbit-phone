@@ -3,6 +3,7 @@
 import argparse
 import json
 import re
+import shlex
 import time
 import xml.etree.ElementTree as ET
 from verify_recorder import Device, ROOT, PACKAGE
@@ -58,13 +59,12 @@ def main():
         time.sleep(.35)
 
     def click_power():
-        driver = device.power_driver()
-        device.edge(driver, True)
-        try:
-            time.sleep(.075)
-        finally:
-            device.edge(driver, False)
-        time.sleep(.65)
+        driver = shlex.quote(device.power_driver())
+        release = 'sendevent ' + driver + ' 1 116 0; sendevent ' + driver + ' 0 0 0'
+        device.adb('shell', 'trap ' + shlex.quote(release) + ' EXIT; sendevent ' + driver
+                   + ' 1 116 1; sendevent ' + driver + ' 0 0 0; sleep .075; ' + release)
+        # Single-click arbitration plus the 720ms feature reveal must settle.
+        time.sleep(1.15)
 
     try:
         device.home()

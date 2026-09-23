@@ -41,7 +41,7 @@ public final class CardDeckView extends View {
     private static final float CARD_LEFT = 68f, CARD_WIDTH = 326f, CARD_HEIGHT = 440f;
     private static final float SELECTED_TOP = 190f, SELECTED_REVEAL = 112f, HEADER_STEP = 44f;
     private static final float ACTIVE_TOP = 190f, ACTIVE_HEIGHT = 390f, ACTIVE_REVEAL = 390f;
-    private static final float CLIP_TOP = 88f, CLIP_BOTTOM = 584f, CORNER_RADIUS = 16f;
+    private static final float CLIP_TOP = 112f, CLIP_BOTTOM = 584f, CORNER_RADIUS = 16f;
     private static final float EDGE_GUARD = 32f, DRAG_STEP = 118f;
     private static final long SETTLE_MS = 180L;
     private static final int UNDECIDED = 0, VERTICAL = 1, DISMISS = 2, BLOCKED = 3;
@@ -251,6 +251,43 @@ public final class CardDeckView extends View {
         selected = clampSelection(index);
         updateDescription();
         settle(animate);
+    }
+
+    public NavigationCard getCardSnapshot(int index) {
+        return index < 0 || index >= cards.size() ? null : cards.get(index);
+    }
+
+    /** Draw the same card artwork into a transient face without changing navigation state. */
+    public void drawTransitionFace(Canvas canvas, NavigationCard card, RectF bounds) {
+        float scale = bounds.width() / CARD_WIDTH;
+        if (scale <= 0f || bounds.height() <= 0f) return;
+        float height = bounds.height() / scale;
+        int save = canvas.save();
+        canvas.translate(bounds.left, bounds.top); canvas.scale(scale, scale);
+        canvas.clipRect(-8, -8, CARD_WIDTH + 8, height + 8);
+        paint.setStyle(Paint.Style.FILL); paint.setColor(card.color);
+        canvas.drawRoundRect(0, 0, CARD_WIDTH, height, CORNER_RADIUS, CORNER_RADIUS, paint);
+        paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2); paint.setColor(Color.BLACK);
+        canvas.drawRoundRect(0, 0, CARD_WIDTH, height, CORNER_RADIUS, CORNER_RADIUS, paint);
+        drawGlyph(canvas, card.glyph, 12, 6, 29, card.color);
+        labelPaint.setTextAlign(Paint.Align.RIGHT); labelPaint.setTextSize(28);
+        float width = labelPaint.measureText(card.title);
+        if (width > CARD_WIDTH - 70) labelPaint.setTextSize(28 * (CARD_WIDTH - 70) / width);
+        canvas.drawText(card.title, CARD_WIDTH - 13, 29, labelPaint);
+        if (card.preview != null) {
+            drawPreviewText(canvas, card.preview.value, 70, CARD_WIDTH / 2, height / 2 + 29);
+            drawPreviewText(canvas, card.preview.detail, 26, CARD_WIDTH / 2, height / 2 + 67);
+        } else {
+            drawGlyph(canvas, card.glyph, CARD_WIDTH / 2 - 58, height / 2 - 58, 116, card.color);
+            int mirrored = canvas.save();
+            canvas.rotate(180, CARD_WIDTH / 2, height / 2);
+            labelPaint.setTextAlign(Paint.Align.RIGHT); labelPaint.setTextSize(28);
+            if (width > CARD_WIDTH - 70) labelPaint.setTextSize(28 * (CARD_WIDTH - 70) / width);
+            canvas.drawText(card.title, CARD_WIDTH - 13, 29, labelPaint);
+            drawGlyph(canvas, card.glyph, 12, 6, 29, card.color);
+            canvas.restoreToCount(mirrored);
+        }
+        canvas.restoreToCount(save);
     }
 
     public int getSelection() { return selected; }
@@ -939,7 +976,14 @@ public final class CardDeckView extends View {
                 canvas.drawLine(26, 7, 29, 10, paint);
                 break;
             case TRANSLATE:
-                canvas.drawRect(2, 10, 14, 29, paint); canvas.drawRect(17, 3, 30, 25, paint);
+                glyphPath.moveTo(2, 12); glyphPath.quadTo(2, 9, 5, 9);
+                glyphPath.lineTo(14, 9); glyphPath.lineTo(14, 25);
+                glyphPath.lineTo(7, 25); glyphPath.lineTo(2, 30); glyphPath.close();
+                canvas.drawPath(glyphPath, paint); glyphPath.reset();
+                glyphPath.moveTo(17, 3); glyphPath.lineTo(25, 3);
+                glyphPath.quadTo(30, 3, 30, 8); glyphPath.lineTo(30, 26);
+                glyphPath.lineTo(25, 22); glyphPath.lineTo(17, 22); glyphPath.close();
+                canvas.drawPath(glyphPath, paint);
                 stroke(paper, 1.8f);
                 canvas.drawLine(5, 24, 8, 15, paint); canvas.drawLine(8, 15, 11, 24, paint);
                 canvas.drawLine(6, 21, 10, 21, paint);

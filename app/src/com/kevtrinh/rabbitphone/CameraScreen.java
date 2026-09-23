@@ -47,6 +47,7 @@ public final class CameraScreen implements SurfaceHolder.Callback {
         void onHome();
         void onKeyboard();
         void onSettings();
+        default void onInteraction() { }
     }
     private final Activity owner;
     private final Host host;
@@ -158,7 +159,11 @@ public final class CameraScreen implements SurfaceHolder.Callback {
                     if (!recording) status.setText(facingLabel());
                 }
             }
-            @Override public void onDown(long time) { if (foreground) gestures.down(time); }
+            @Override public void onDown(long time) {
+                if (!foreground) return;
+                host.onInteraction();
+                if (foreground && !released) gestures.down(time);
+            }
             @Override public void onUp(long time) { if (foreground) gestures.up(time); }
             @Override public void onDisconnected() {
                 gestures.cancel();
@@ -198,7 +203,7 @@ public final class CameraScreen implements SurfaceHolder.Callback {
         LinearLayout header = new LinearLayout(owner);
         header.setGravity(Gravity.CENTER_VERTICAL);
         Button back = button("Back", false);
-        back.setContentDescription("Back to cards");
+        back.setContentDescription("Back to home");
         back.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View view) { if (!released) host.onBack(); }
         });

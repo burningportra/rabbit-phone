@@ -14,7 +14,7 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.TextView;
 
 /** Local timer choices and an in-window duration editor; never opens a dialog. */
-public final class TimerSetupView extends ViewGroup {
+public final class TimerSetupView extends ViewGroup implements HardwarePage {
     public interface Host { void onStart(long durationMillis); }
     private static final int ACCENT = 0xff6b63ff, WHITE = 0xfff5efe1, MUTED = 0xff99969e;
     private static final int[] MINUTES = {1, 3, 5, 10, 15, 30};
@@ -69,6 +69,8 @@ public final class TimerSetupView extends ViewGroup {
         addView(start);
         updateMode();
     }
+
+    @Override public View getView() { return this; }
 
     public boolean handleBack() {
         if (!custom) return false;

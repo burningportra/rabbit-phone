@@ -1,18 +1,37 @@
 package com.kevtrinh.rabbitphone;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.os.Bundle;
 import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 /** Stock-style clock and rabbit home, drawn in the device's 480 by 640 coordinate space. */
 public final class RabbitHomeView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path shape = new Path();
+    private static final String MASCOT_SHA256 = "a98649570dd00094d1a95c468f607b5cb3102f94203bc8a1b2aa501ee68165fa";
+    private static Bitmap cachedMascot;
+    private static long cachedModified;
+    private static final int MAX_MASCOT_BYTES = 262_144;
+    // Original guide PNG, with its outer border/blank canvas excluded only while drawing.
+    private final Rect mascotSource = new Rect(248, 176, 768, 868);
+    private final RectF mascotDestination = new RectF(170f, 216.85f, 310f, 403.15f);
+    private final Bitmap privateMascot;
     private String time = "--:--";
     private int battery = -1;
     private Runnable openStack;
@@ -21,6 +40,7 @@ public final class RabbitHomeView extends View {
         super(context);
         setBackgroundColor(Color.BLACK);
         paint.setTypeface(RabbitTypography.regular(context));
+        privateMascot = loadPrivateMascot(context);
         setFocusable(true);
         setClickable(true);
         setContentDescription("Rabbit home. Swipe up or use the wheel to open the card stack.");
@@ -49,14 +69,67 @@ public final class RabbitHomeView extends View {
         super.onDraw(canvas);
         int save = canvas.save();
         canvas.scale(getWidth() / 480f, getHeight() / 640f);
+        // Draw before the clock so the source PNG's black background cannot
+        // erase clock pixels where the ears share its lower edge.
+        if (privateMascot != null) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setFilterBitmap(true);
+            canvas.drawBitmap(privateMascot, mascotSource, mascotDestination, paint);
+        }
         paint.setColor(0xfff5efe1); paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER); paint.setTextSize(24);
         canvas.drawText(battery < 0 ? "--%" : battery + "%", 226, 145, paint);
         drawBattery(canvas, 269, 127, battery);
         paint.setTextSize(78); paint.setTextAlign(Paint.Align.CENTER);
         canvas.drawText(time, 240, 230, paint);
-        drawRabbit(canvas, 240, 316, .82f);
+        if (privateMascot == null) drawRabbit(canvas, 240, 316, .82f);
         canvas.restoreToCount(save);
+    }
+
+    /** Optional owner-installed asset, shared after verification; no file polling or animation. */
+    private static synchronized Bitmap loadPrivateMascot(Context context) {
+        File file = new File(context.getFilesDir(), "theme/rabbit-head.png");
+        if (!file.isFile() || file.length() < 24 || file.length() > MAX_MASCOT_BYTES) return null;
+        long modified = file.lastModified();
+        if (cachedMascot != null && !cachedMascot.isRecycled() && cachedModified == modified) return cachedMascot;
+        try (FileInputStream input = new FileInputStream(file)) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            byte[] chunk = new byte[4096];
+            int count;
+            while ((count = input.read(chunk)) != -1) {
+                if (bytes.size() + count > MAX_MASCOT_BYTES) return null;
+                bytes.write(chunk, 0, count);
+            }
+            byte[] encoded = bytes.toByteArray();
+            byte[] signature = {(byte) 137, 80, 78, 71, 13, 10, 26, 10};
+            if (encoded.length < 24) return null;
+            for (int i = 0; i < signature.length; i++) if (encoded[i] != signature[i]) return null;
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(encoded);
+            char[] hex = new char[digest.length * 2];
+            String digits = "0123456789abcdef";
+            for (int i = 0; i < digest.length; i++) {
+                hex[i * 2] = digits.charAt((digest[i] & 255) >>> 4);
+                hex[i * 2 + 1] = digits.charAt(digest[i] & 15);
+            }
+            if (!MASCOT_SHA256.equals(new String(hex))) return null;
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(encoded, 0, encoded.length, options);
+            if (options.outWidth != 1040 || options.outHeight != 1044 || !"image/png".equals(options.outMimeType)) return null;
+            options.inJustDecodeBounds = false;
+            options.inScaled = false;
+            options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            Bitmap decoded = BitmapFactory.decodeByteArray(encoded, 0, encoded.length, options);
+            if (decoded != null && (decoded.getWidth() != 1040 || decoded.getHeight() != 1044)) {
+                decoded.recycle(); return null;
+            }
+            cachedMascot = decoded; cachedModified = modified;
+            return decoded;
+        } catch (IOException | NoSuchAlgorithmException | RuntimeException unavailable) {
+            return null;
+        } catch (OutOfMemoryError unavailable) {
+            return null;
+        }
     }
 
     private void drawBattery(Canvas canvas, float x, float y, int percent) {
