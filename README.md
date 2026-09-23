@@ -2,7 +2,7 @@
 
 A small, Rabbit-inspired phone interface for the Rabbit R1. It runs on the
 existing CipherOS 7.0 / Android 16 installation with the stock v0.8.293 kernel,
-using a black canvas, warm white type, orange selection, and the physical wheel.
+using a black Home screen, warm white type, colored app cards, and the physical wheel.
 The tested display is 480 × 640 with a 190 dpi override.
 
 The installed device can also use the owner's verified Power Grotesk font from
@@ -15,13 +15,17 @@ for the owner's device.
 
 - Package: `com.kevtrinh.rabbitphone`; main activity: `.HomeActivity`.
 - Native Java Android APIs only; no Gradle or external app dependencies required.
-- Home gives direct access to Phone, Messages, Camera, Music and all apps.
-- The wheel moves the highlighted selection and scrolls the app list with haptic
+- Home shows the clock, battery and rabbit. The first wheel tick or upward swipe opens
+  a rabbitOS 2-inspired card stack; the apps card keeps every installed phone app accessible.
+- Opened cards move to the front. Swipe an opened card left to dismiss its navigation
+  entry without deleting app data. Top-edge swipe opens brightness, media volume,
+  camera, keyboard, lock and settings; bottom-edge swipe returns Home.
+- The wheel browses the overlapping cards and app list with haptic
   ticks. The R1 wheel does not physically click; its side button selects instead.
 - Phone/SMS are launched through standard intents and existing default apps.
   There are no automatic calls or sent messages.
-- A built-in camera supports front/rear rotation, explicit photo capture, and
-  privacy parking. Photos go to `Pictures/Rabbit Phone`.
+- A built-in camera stays inside the Home window and supports front/rear rotation,
+  explicit photo capture, and privacy parking. Photos go to `Pictures/Rabbit Phone`.
 - Holding the side button opens a reel-to-reel recorder inspired by Rabbit's
   Magic Recorder: red rotating reels, a real microphone level meter, elapsed
   timer and Power Grotesk type. Release saves a private voice
@@ -29,7 +33,7 @@ for the owner's device.
   an unfinished take, and the 60-second limit saves it automatically. The app has
   no Internet permission.
 - App list remains available; no packages removed or disabled.
-- **All apps → Utilities → Rabbit theme** previews and explicitly applies or
+- **apps → Utilities → Rabbit theme** previews and explicitly applies or
   removes the matching Home-and-lock wallpaper. Android's real keyguard,
   notifications, PIN and security behavior remain in charge of the lock screen.
 - A narrow native input helper handles the power button only while this
@@ -40,19 +44,20 @@ for the owner's device.
 
 | Input | Launcher | Built-in camera |
 | --- | --- | --- |
-| Wheel | Move selection / scroll, with haptics | Up: front; down: rear |
-| Short side-button press | Open selected item | Take a photo |
+| Wheel | Open the stack from Home, then browse with haptics | Up: front; down: rear |
+| Short side-button press | Sleep on Home; open the selected card in the stack | Take a photo |
 | Double press | Open camera | Return to launcher |
 | Hold, then release | Record and save a local voice note | Record and save a local voice note |
 | Five quick presses | Refresh the local interface | Refresh preview |
 | Eight quick presses | Power off | Power off |
-| Tap rabbit icon | Standby clock; button then sleeps | — |
-| Wheel/tap on standby clock | Return to app menu | — |
+| Swipe upward on Home | Open the card stack | — |
+| Swipe down from top edge | Quick settings | Quick settings |
+| Swipe up from bottom edge | Return Home | Return Home |
 
-The recorder stays inside the current Home or camera window, so holding the
+The recorder and camera stay inside the Home window, so holding the
 button keeps its input connection until release. In the recorder, the wheel
 moves between actions with haptics and a short side-button press selects one.
-Saved notes are also available under **All apps → Utilities → Voice notes**.
+Saved notes are available from the **recorder** card and **apps → Utilities → Voice notes**.
 Playback starts only when selected. Leaving the app, locking it or losing the
 hardware connection stops playback and discards an unfinished recording.
 Saved notes and the library include **−/+ media-volume controls** and a current
@@ -72,7 +77,10 @@ instant; touch presses and save feedback use short, interruptible transitions.
 Normal Android wake/lock behavior remains available. Standalone Android apps
 retain their own controls. The five-press action refreshes this local interface;
 it does not reconnect to Rabbit's cloud. This project does not supply Rabbit's
-cloud assistant or services.
+cloud assistant or services. The keyboard shortcut searches installed apps; cloud
+cards open their public service in the browser. Android feature screens and
+static previews remain differences from Rabbit firmware; see the [navigation
+reference and parity status](docs/navigation-parity.md).
 
 The optional Assistant profile also opens the recorder from standby or another
 app with one continuous side-button hold. Android handles the long press and
@@ -117,7 +125,10 @@ python3 scripts/verify_reboot.py
 ```
 
 The app installer grants Camera and Microphone permission for the corresponding
-user-initiated features and sets **Rabbit Phone** as the default Home app.
+user-initiated features and sets **Rabbit Phone** as the default Home app. It also
+grants system-settings access for the explicit brightness slider, saving the
+previous grant in ignored `evidence/navigation-write-settings-before.json`.
+Installation and opening quick settings do not change brightness or volume.
 The Assistant profile selects the permission-protected custom recorder as Android's
 assistant and changes long-press power from the power menu to that entry point.
 It saves the original role and settings in a device-bound recovery journal. For
@@ -134,6 +145,23 @@ rabbitOS screens. Selected stock apps use local, same-certificate PackageInstall
 updates to carry Power Grotesk or finite readability fixes while preserving app
 data. See [Theme and typography](docs/theme.md) for the private-font workflow,
 system palette, tracked app updates, lock wallpaper and exact rollback order.
+
+## Navigation verification
+
+The device checks exercise the visible UI and raw R1 wheel/power input paths:
+
+```sh
+python3 scripts/verify_navigation.py --device-test
+python3 scripts/verify_navigation_camera.py --device-test
+python3 scripts/verify_quick_settings.py --device-test
+```
+
+The camera check opens its preview without taking photos. The quick-settings
+check temporarily changes brightness and volume, verifies restart persistence,
+and restores its own changes. Neither test records or plays audio. Results and
+screenshots remain under ignored `evidence/`; existing notes are hash-checked.
+See [navigation parity](docs/navigation-parity.md) for tested behavior and known
+stock-rabbitOS differences.
 
 ## Recovery
 

@@ -7,7 +7,7 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 
-from verify_playback import dump_ui, tap_label, tap_node, volume
+from verify_playback import dump_ui, open_recorder_library, tap_node, volume
 from verify_recorder import Device, PACKAGE, ROOT
 
 
@@ -24,11 +24,7 @@ def speaker_state(device):
 
 
 def open_library(device):
-    if device.microphone_active():
-        raise RuntimeError('A recording is active; leaving its screen and audio untouched')
-    device.home()
-    for label in ('All apps', 'Utilities', 'Voice notes'):
-        tap_label(device, label)
+    open_recorder_library(device)
 
 
 def move_volume(device, expected, target):

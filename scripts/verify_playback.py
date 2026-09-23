@@ -42,6 +42,72 @@ def tap_label(device, label):
     tap_node(device, nodes[0])
 
 
+MAX_DECK_TICKS = 20
+
+
+def wheel_driver(device):
+    inputs = device.adb('shell', 'for f in /sys/class/input/event*/device/name; do '
+                        'printf "%s " "$f"; cat "$f"; done')
+    name = next((line.split('/')[4] for line in inputs.splitlines()
+                 if line.endswith(' och1970_holl_key')), None)
+    if name is None:
+        raise RuntimeError('R1 wheel input driver not found')
+    return '/dev/input/' + name
+
+
+def wheel_tick(device, key_code, wheel=None):
+    if wheel is None:
+        wheel = wheel_driver(device)
+    for value in ('1', '0'):
+        device.shell('sendevent', wheel, '1', str(key_code), value)
+        device.shell('sendevent', wheel, '0', '0', '0')
+
+
+def wheel_up(device, wheel=None):
+    wheel_tick(device, 115, wheel)  # Linux KEY_VOLUMEUP on the installed wheel mapping.
+
+
+def wheel_down(device, wheel=None):
+    wheel_tick(device, 108, wheel)  # Linux KEY_DOWN on the installed wheel mapping.
+
+
+def visible_label(device, label):
+    nodes = [node for node in ET.fromstring(dump_ui(device)).iter('node')
+             if node.get('text') == label]
+    if len(nodes) > 1:
+        raise RuntimeError('Expected at most one visible control: ' + label)
+    if not nodes:
+        return None
+    coordinates = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',
+                               nodes[0].get('bounds', ''))
+    if not coordinates or coordinates.group(1) == coordinates.group(3) or coordinates.group(2) == coordinates.group(4):
+        raise RuntimeError('Visible control has invalid bounds: ' + label)
+    return nodes[0]
+
+
+def open_recorder_library(device):
+    """Follow the rendered Home path: wheel opens the deck, then its recorder card."""
+    if device.microphone_active():
+        raise RuntimeError('Finish the active recording before opening recorder library')
+    device.home()
+    wheel = wheel_driver(device)
+    wheel_down(device, wheel)
+    time.sleep(.2)
+    # Opened cards persist above the catalog, so always reset the selected card
+    # through physical wheel edges before walking forward through the visible deck.
+    for _ in range(MAX_DECK_TICKS):
+        wheel_up(device, wheel)
+        time.sleep(.05)
+    for _ in range(MAX_DECK_TICKS):
+        recorder = visible_label(device, 'recorder')
+        if recorder is not None:
+            tap_node(device, recorder)
+            return device.lease()
+        wheel_down(device, wheel)
+        time.sleep(.12)
+    raise RuntimeError('Recorder card was not visible within the bounded deck traversal')
+
+
 def playback_line(device, uid):
     return next((line for line in device.shell('dumpsys', 'audio').splitlines()
                  if 'AudioPlaybackConfiguration ' in line and 'u/pid:' + uid + '/' in line
@@ -71,9 +137,7 @@ def main():
     evidence.mkdir(parents=True, exist_ok=True)
     result = {'starting_volume': starting_volume, 'existing_note_files': len(initial)}
     try:
-        lease = device.home()
-        for label in ['All apps', 'Utilities', 'Voice notes']:
-            tap_label(device, label)
+        lease = open_recorder_library(device)
         ui = dump_ui(device)
         nodes = list(ET.fromstring(ui).iter('node'))
         rows = [node for node in nodes if node.get('text') == 'Select to play']
@@ -105,14 +169,7 @@ def main():
 
         # The lower control is selected. One actual wheel DOWN selects plus,
         # and the physical power-driver click must activate that control.
-        inputs = device.adb('shell', 'for f in /sys/class/input/event*/device/name; do '
-                            'printf "%s " "$f"; cat "$f"; done')
-        name = next(line.split('/')[4] for line in inputs.splitlines()
-                    if line.endswith(' och1970_holl_key'))
-        wheel = '/dev/input/' + name
-        for value in ['1', '0']:
-            device.shell('sendevent', wheel, '1', '108', value)
-            device.shell('sendevent', wheel, '0', '0', '0')
+        wheel_down(device)
         power = device.power_driver()
         device.edge(power, True)
         time.sleep(.08)

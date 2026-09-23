@@ -255,8 +255,8 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     private void attach() {
         if (root != null) return;
-        View content = activity.findViewById(android.R.id.content);
-        if (!(content instanceof ViewGroup)) {
+        ViewGroup content = NavigationSurface.content(activity);
+        if (content == null) {
             host.onRecorderMessage("Recorder screen isn't available");
             return;
         }
@@ -269,7 +269,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         root.setOnTouchListener(new View.OnTouchListener() {
             @Override public boolean onTouch(View view, MotionEvent event) { return true; }
         });
-        ((ViewGroup) content).addView(root, new ViewGroup.LayoutParams(
+        content.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.bringToFront();
         root.requestFocus();
@@ -383,7 +383,11 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         if (page == null) return;
         savedFile = null;
         savedDuration = 0L;
-        TextView title = text("Voice notes", 32, WHITE, Typeface.NORMAL);
+        TextView title = text("‹ voice notes", 32, WHITE, Typeface.NORMAL);
+        title.setContentDescription("Back");
+        title.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { closeFromUser(); }
+        });
         page.addView(title, new LinearLayout.LayoutParams(-1, dp(52)));
         TextView subtitle = text("Saved privately on this Rabbit", 14, MUTED, Typeface.NORMAL);
         page.addView(subtitle, new LinearLayout.LayoutParams(-1, dp(38)));
@@ -429,8 +433,12 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     private void addDeckHeader(String state, int color) {
         LinearLayout row = new LinearLayout(activity);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(text("recorder", 22, WHITE, Typeface.NORMAL),
-                new LinearLayout.LayoutParams(0, -1, 1f));
+        TextView back = text("‹ recorder", 22, WHITE, Typeface.NORMAL);
+        back.setContentDescription("Back");
+        back.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { closeFromUser(); }
+        });
+        row.addView(back, new LinearLayout.LayoutParams(0, -1, 1f));
         TextView status = text(state, 13, color, Typeface.NORMAL);
         status.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
         row.addView(status, new LinearLayout.LayoutParams(-2, -1));

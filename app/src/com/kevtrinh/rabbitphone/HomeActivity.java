@@ -1,6 +1,7 @@
 package com.kevtrinh.rabbitphone;
 
 import android.app.Activity;
+import android.animation.ValueAnimator;
 import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -9,6 +10,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ResolveInfo;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.ConnectivityManager;
@@ -30,6 +33,10 @@ import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -46,33 +53,50 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.LinkedHashMap;
+import org.json.JSONArray;
 
 public final class HomeActivity extends Activity {
-    private static final int BG = Color.rgb(10, 10, 9);
+    private static final int BG = Color.BLACK;
     private static final int WARM_WHITE = Color.rgb(245, 239, 225);
     private static final int MUTED = Color.rgb(161, 154, 140);
     private static final int ORANGE = Color.rgb(255, 90, 31);
     private static final int DARK_INK = Color.rgb(22, 18, 14);
     private static final int CARD = Color.rgb(27, 27, 24);
 
-    private enum Page { HOME, APPS, UTILITIES, IDLE }
+    private enum Page { HOME, DECK, APPS, UTILITIES, SETTINGS, KEYBOARD, FEATURE, CAMERA, IDLE }
 
     private static final class Entry {
+        final String id;
         final String label;
         final String detail;
         final Runnable action;
+        final int color;
+        final NavigationCard.Glyph glyph;
 
         Entry(String label, String detail, Runnable action) {
-            this.label = label;
-            this.detail = detail;
-            this.action = action;
+            this(label.toLowerCase(Locale.ROOT), label, detail, ORANGE, NavigationCard.Glyph.APPS, action);
+        }
+        Entry(String id, String label, String detail, int color, NavigationCard.Glyph glyph, Runnable action) {
+            this.id = id; this.label = label; this.detail = detail; this.action = action;
+            this.color = color; this.glyph = glyph;
         }
     }
 
     private final Handler clockHandler = new Handler(Looper.getMainLooper());
     private final ArrayList<View> selectableViews = new ArrayList<>();
     private final ArrayList<Entry> visibleEntries = new ArrayList<>();
-    private final int[] savedSelection = {0, 0, 0, 0};
+    private final int[] savedSelection = new int[Page.values().length];
+    private final LinkedHashMap<String, Entry> primaryCards = new LinkedHashMap<>();
+    private CardNavigation navigation;
+    private NavigationSurface navigationSurface;
+    private RabbitHomeView homeVisual;
+    private CardDeckView cardDeck;
+    private QuickSettingsOverlay quickSettings;
+    private BatteryIcon batteryIcon;
+    private boolean returningFromApp;
+    private CameraScreen cameraScreen;
+    private boolean cameraReturnHome;
     private final Handler controlsHandler = new Handler(Looper.getMainLooper());
     private HardwareButtonClient hardware;
     private ButtonGestures gestures;
@@ -118,8 +142,10 @@ public final class HomeActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        prepareCards();
         prepareControls();
         showHome();
+        handleNavigationIntent(getIntent());
         configureWindow();
     }
 
@@ -127,12 +153,28 @@ public final class HomeActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (handleNavigationIntent(intent)) return;
         if (intent != null
                 && Intent.ACTION_MAIN.equals(intent.getAction())
                 && intent.hasCategory(Intent.CATEGORY_HOME)) {
             if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
+            if (quickSettings != null) quickSettings.dismiss();
             showHome();
         }
+    }
+
+    private boolean handleNavigationIntent(Intent intent) {
+        if (intent == null) return false;
+        String action = intent.getStringExtra(NavigationIntents.EXTRA_DESTINATION);
+        if (action == null) action = intent.getAction();
+        if (!NavigationIntents.ACTION_OPEN_CAMERA.equals(action)
+                && !NavigationIntents.ACTION_OPEN_KEYBOARD.equals(action)
+                && !NavigationIntents.ACTION_OPEN_SETTINGS.equals(action)) return false;
+        recorderOverlay.abortAndDismiss(); quickSettings.dismiss();
+        if (NavigationIntents.ACTION_OPEN_CAMERA.equals(action)) openCamera();
+        else if (NavigationIntents.ACTION_OPEN_KEYBOARD.equals(action)) showKeyboard();
+        else showSettings();
+        return true;
     }
 
     private void configureWindow() {
@@ -160,20 +202,25 @@ public final class HomeActivity extends Activity {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        if (cameraScreen != null) cameraScreen.onResume();
+        if (returningFromApp && page == Page.DECK) showDeck(false);
+        returningFromApp = false;
         configureWindow();
         clockHandler.removeCallbacks(clockTick);
         clockHandler.post(clockTick);
         registerBatteryStatus();
         registerNetworkStatus();
-        updateControls();
+        updateControls(); updateSurfaceMode();
     }
 
     @Override
     protected void onPause() {
         resumed = false;
+        if (cameraScreen != null) cameraScreen.onPause();
         if (hardware != null) hardware.stop();
         if (gestures != null) gestures.cancel();
         if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
+        if (quickSettings != null) quickSettings.dismiss();
         super.onPause();
         clockHandler.removeCallbacks(clockTick);
         if (batteryReceiverRegistered) {
@@ -189,21 +236,25 @@ public final class HomeActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
-        if (focused) updateControls();
+        if (cameraScreen != null) { cameraScreen.onWindowFocusChanged(focused); return; }
+        if (focused) { updateControls(); updateSurfaceMode(); }
         else {
             if (hardware != null) hardware.stop();
             if (gestures != null) gestures.cancel();
             if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
+            if (quickSettings != null) quickSettings.dismiss();
         }
     }
 
     @Override protected void onDestroy() {
+        releaseCameraScreen();
         if (recorderOverlay != null) recorderOverlay.release();
+        if (quickSettings != null) quickSettings.release();
         super.onDestroy();
     }
 
     private void updateControls() {
-        if (hardware == null || !resumed || !hasWindowFocus()) return;
+        if (cameraScreen != null || hardware == null || !resumed || !hasWindowFocus()) return;
         KeyguardManager keyguard = getSystemService(KeyguardManager.class);
         PowerManager power = getSystemService(PowerManager.class);
         if (keyguard != null && keyguard.isKeyguardLocked()) return;
@@ -216,8 +267,21 @@ public final class HomeActivity extends Activity {
             @Override public void onRecorderActiveChanged(boolean active) {
                 recording = active;
                 updateStatus();
+                updateSurfaceMode();
             }
             @Override public void onRecorderMessage(String message) { showError(message); }
+            @Override public void onRecorderClosed() { showDeck(false); }
+        });
+        quickSettings = new QuickSettingsOverlay(this, new QuickSettingsOverlay.Host() {
+            @Override public void onCamera() { recorderOverlay.abortAndDismiss(); openCamera(); }
+            @Override public void onKeyboard() { recorderOverlay.abortAndDismiss(); showKeyboard(); }
+            @Override public void onLock() {
+                recorderOverlay.abortAndDismiss(); gestures.cancel();
+                if (!hardware.send(HardwareButtonClient.Command.SLEEP)) showError("Use the side button to lock");
+            }
+            @Override public void onSettings() { recorderOverlay.abortAndDismiss(); showSettings(); }
+            @Override public void onMessage(String message) { showError(message); }
+            @Override public void onDismiss() { updateSurfaceMode(); }
         });
         gestures = new ButtonGestures(new ButtonGestures.Scheduler() {
             @Override public long now() { return android.os.SystemClock.uptimeMillis(); }
@@ -225,28 +289,35 @@ public final class HomeActivity extends Activity {
             @Override public void remove(Runnable action) { controlsHandler.removeCallbacks(action); }
         }, new ButtonGestures.Actions() {
             @Override public void onSingle() {
+                if (quickSettings.handleSingle()) return;
                 if (recorderOverlay.handleSingle()) return;
-                if (page == Page.IDLE) hardware.send(HardwareButtonClient.Command.SLEEP);
+                if (page == Page.HOME || page == Page.IDLE) hardware.send(HardwareButtonClient.Command.SLEEP);
                 else {
                     getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
                     activateSelection();
                 }
             }
             @Override public void onDouble() {
+                quickSettings.dismiss();
                 recorderOverlay.dismissForDouble();
                 openCamera();
             }
             @Override public void onHoldStart() {
+                quickSettings.dismiss();
+                markOpened("recorder");
                 recorderOverlay.beginHold();
+                updateSurfaceMode();
             }
             @Override public void onHoldEnd() { recorderOverlay.finishHold(); }
             @Override public void onRefresh() {
                 recorderOverlay.abortAndDismiss();
+                quickSettings.dismiss();
                 showHome(); refreshNetwork(); updateClock();
                 showError("Phone interface refreshed");
             }
             @Override public void onShutdown() {
                 recorderOverlay.abortAndDismiss();
+                quickSettings.dismiss();
                 if (hardware.send(HardwareButtonClient.Command.SHUTDOWN)) showError("Powering off");
             }
         });
@@ -259,31 +330,13 @@ public final class HomeActivity extends Activity {
             @Override public void onUp(long time) { gestures.up(time); }
             @Override public void onDisconnected() {
                 gestures.cancel(); recorderOverlay.abortAndDismiss();
+                quickSettings.dismiss();
                 android.util.Log.i("RabbitPhoneHardware", "Home controls released");
                 controlsHandler.postDelayed(new Runnable() {
                     @Override public void run() { updateControls(); }
                 }, 750);
             }
         });
-    }
-
-    private void showIdle() {
-        page = Page.IDLE;
-        visibleEntries.clear(); selectableViews.clear(); scrollView = null;
-        LinearLayout root = rootColumn(); root.setGravity(Gravity.CENTER);
-        root.addView(new RabbitMarkView(this), new LinearLayout.LayoutParams(dp(96), dp(96)));
-        clockView = text("", 64, WARM_WHITE, Typeface.BOLD);
-        clockView.setFontFeatureSettings("tnum");
-        dateView = text("", 18, MUTED, Typeface.NORMAL);
-        statusView = text("", 14, MUTED, Typeface.NORMAL);
-        root.addView(clockView); root.addView(dateView); root.addView(statusView);
-        TextView hint = text("Wheel or tap to browse", 14, MUTED, Typeface.NORMAL);
-        hint.setPadding(0, dp(36), 0, 0); root.addView(hint);
-        root.setContentDescription("Standby clock. Tap to browse. Side button sleeps.");
-        root.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showHome(); }
-        });
-        setContentView(root); applyInsets(root); updateClock(); updateStatus();
     }
 
     private void registerBatteryStatus() {
@@ -330,83 +383,201 @@ public final class HomeActivity extends Activity {
         });
     }
 
+    private void prepareCards() {
+        addCard("camera", "camera", 0xffff009f, NavigationCard.Glyph.CAMERA, new Runnable() {
+            @Override public void run() { openCamera(); }
+        });
+        addCard("gallery", "magic gallery", 0xff1af6ff, NavigationCard.Glyph.GALLERY,
+                new Runnable() {
+                    @Override public void run() {
+                        if (launchPackage("com.dot.gallery", new Intent(Intent.ACTION_VIEW).setType("image/*"),
+                                "No gallery is installed")) markOpened("gallery");
+                    }
+                });
+        addCard("timer", "timer", 0xff6b63ff, NavigationCard.Glyph.TIMER,
+                new Runnable() {
+                    @Override public void run() {
+                        if (launchIntent(new Intent(AlarmClock.ACTION_SET_TIMER), "No timer is installed")) markOpened("timer");
+                    }
+                });
+        addCard("translator", "translator", 0xff02f719, NavigationCard.Glyph.TRANSLATE,
+                new Runnable() {
+                    @Override public void run() {
+                        markOpened("translator");
+                        showWebCard("translator", "Open translation", "https://translate.google.com/");
+                    }
+                });
+        addCard("recorder", "recorder", 0xffff163c, NavigationCard.Glyph.RECORDER,
+                new Runnable() {
+                    @Override public void run() { markOpened("recorder"); recorderOverlay.showLibrary(); updateSurfaceMode(); }
+                });
+        addCard("r-cade", "r-cade", 0xffff8d00, NavigationCard.Glyph.RCADE, new Runnable() {
+            @Override public void run() { markOpened("r-cade"); showGames(); }
+        });
+        addCard("reminders", "reminders", 0xff0091ff, NavigationCard.Glyph.REMINDERS,
+                new Runnable() {
+                    @Override public void run() {
+                        if (launchPackage("com.techyminati.pages", null, "No reminders app is installed")) markOpened("reminders");
+                    }
+                });
+        addCard("alarm", "alarm", 0xffe16bf5, NavigationCard.Glyph.ALARM,
+                new Runnable() {
+                    @Override public void run() {
+                        if (launchIntent(new Intent(AlarmClock.ACTION_SHOW_ALARMS), "No alarm app is installed")) markOpened("alarm");
+                    }
+                });
+        addCard("intern", "intern", 0xffffb300, NavigationCard.Glyph.INTERN,
+                new Runnable() {
+                    @Override public void run() { markOpened("intern"); showWebCard("intern", "Open OS3", "https://os3.rabbit.tech/"); }
+                });
+        addCard("music", "music", 0xffe7f200, NavigationCard.Glyph.MUSIC, new Runnable() {
+            @Override public void run() { openMusic(); }
+        });
+        addCard("creations", "creations", 0xffff7700, NavigationCard.Glyph.CREATIONS,
+                new Runnable() {
+                    @Override public void run() {
+                        markOpened("creations");
+                        showWebCard("creations", "Browse creations", "https://www.rabbit.tech/creations");
+                    }
+                });
+        addCard("settings", "settings", 0xffff3400, NavigationCard.Glyph.SETTINGS, new Runnable() {
+            @Override public void run() { markOpened("settings"); showSettings(); }
+        });
+        addCard("apps", "apps", 0xfff5efe1, NavigationCard.Glyph.APPS, new Runnable() {
+            @Override public void run() { markOpened("apps"); showApps(); }
+        });
+        navigation = new CardNavigation(new ArrayList<>(primaryCards.keySet()));
+        ArrayList<String> opened = new ArrayList<>();
+        try {
+            JSONArray saved = new JSONArray(getPreferences(MODE_PRIVATE).getString("opened_cards", "[]"));
+            for (int i = 0; i < saved.length(); i++) opened.add(saved.getString(i));
+        } catch (org.json.JSONException ignored) { }
+        navigation.restoreOpened(opened);
+    }
+
+    private void addCard(String id, String title, int color, NavigationCard.Glyph glyph, Runnable action) {
+        primaryCards.put(id, new Entry(id, title, "", color, glyph, action));
+    }
+
+    private void markOpened(String id) {
+        navigation.open(id);
+        persistOpened();
+        if (page == Page.DECK) showDeck(false);
+    }
+
+    private void persistOpened() {
+        getPreferences(MODE_PRIVATE).edit().putString("opened_cards",
+                new JSONArray(navigation.openedIds()).toString()).apply();
+    }
+
     private void showHome() {
         page = Page.HOME;
-        ArrayList<Entry> entries = new ArrayList<>();
-        entries.add(new Entry("Phone", "Calls and favorites", new Runnable() {
-            @Override public void run() { openDialer(); }
-        }));
-        entries.add(new Entry("Messages", "Texts and conversations", new Runnable() {
-            @Override public void run() { openMessages(); }
-        }));
-        entries.add(new Entry("Camera", "Take a photo", new Runnable() {
-            @Override public void run() { openCamera(); }
-        }));
-        entries.add(new Entry("Music", "Listen offline", new Runnable() {
-            @Override public void run() { openMusic(); }
-        }));
-        entries.add(new Entry("All apps", "Everything installed", new Runnable() {
-            @Override public void run() { showApps(); }
-        }));
-        entries.add(new Entry("Settings", "Device controls", new Runnable() {
-            @Override public void run() {
-                launchIntent(new Intent(Settings.ACTION_SETTINGS), "Settings isn't available");
-            }
-        }));
-        renderHome(entries);
-    }
-
-    private void renderHome(List<Entry> entries) {
-        selectableViews.clear();
-        visibleEntries.clear();
-        visibleEntries.addAll(entries);
-        LinearLayout root = rootColumn();
-
-        LinearLayout hero = new LinearLayout(this);
-        hero.setOrientation(LinearLayout.HORIZONTAL);
-        hero.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(hero, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(88)));
-
-        LinearLayout timeColumn = new LinearLayout(this);
-        timeColumn.setOrientation(LinearLayout.VERTICAL);
-        clockView = text("--:--", 46, WARM_WHITE, Typeface.BOLD);
-        clockView.setFontFeatureSettings("tnum");
-        dateView = text("", 14, MUTED, Typeface.NORMAL);
-        timeColumn.addView(clockView);
-        timeColumn.addView(dateView);
-        hero.addView(timeColumn, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        RabbitMarkView mark = new RabbitMarkView(this);
-        mark.setContentDescription("Standby clock");
-        mark.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View view) { showIdle(); }
+        visibleEntries.clear(); selectableViews.clear(); scrollView = null; cardDeck = null;
+        clockView = dateView = statusView = null; batteryIcon = null;
+        homeVisual = new RabbitHomeView(this);
+        homeVisual.setOpenStack(new Runnable() {
+            @Override public void run() { showDeck(true); }
         });
-        hero.addView(mark, new LinearLayout.LayoutParams(dp(52), dp(52)));
-
-        statusView = text("", 13, MUTED, Typeface.NORMAL);
-        statusView.setGravity(Gravity.START);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(26));
-        statusParams.bottomMargin = dp(5);
-        root.addView(statusView, statusParams);
-
-        for (int i = 0; i < entries.size(); i++) root.addView(createRow(entries.get(i), i));
-
-        setContentView(root);
-        applyInsets(root);
-        selection = clamp(savedSelection[Page.HOME.ordinal()], 0, entries.size() - 1);
-        applySelection(false);
-        updateClock();
-        updateStatus();
+        installPage(homeVisual, true);
+        updateClock(); updateStatus();
     }
 
-    private void showApps() {
+    private void showDeck(boolean reveal) {
+        page = Page.DECK;
+        ArrayList<Entry> entries = new ArrayList<>();
+        for (String id : navigation.order()) entries.add(primaryCards.get(id));
+        renderCardEntries(entries, navigation.selectedIndex(), false, reveal);
+    }
+
+    private void renderCardEntries(List<Entry> entries, int selected, boolean back, boolean reveal) {
+        selectableViews.clear(); visibleEntries.clear(); visibleEntries.addAll(entries);
+        homeVisual = null; scrollView = null; clockView = dateView = statusView = null;
+        FrameLayout canvas = new FrameLayout(this); canvas.setBackgroundColor(Color.BLACK);
+        cardDeck = new CardDeckView(this);
+        ArrayList<NavigationCard> cards = new ArrayList<>();
+        for (Entry entry : entries) cards.add(new NavigationCard(entry.id, entry.label, entry.color,
+                entry.glyph, page == Page.DECK && navigation.isOpened(entry.id)));
+        selection = clamp(selected, 0, Math.max(0, entries.size() - 1));
+        cardDeck.setCards(cards, selection);
+        cardDeck.setListener(new CardDeckView.Listener() {
+            @Override public void onSelectionChanged(int index) {
+                selection = index; savedSelection[page.ordinal()] = index;
+                if (page == Page.DECK) navigation.select(index);
+                getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            }
+            @Override public void onActivate(int index) { selection = index; activateSelection(); }
+            @Override public void onDismiss(int index) {
+                if (page != Page.DECK || index < 0 || index >= visibleEntries.size()) return;
+                navigation.close(visibleEntries.get(index).id); persistOpened(); showDeck(false);
+                getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+            }
+        });
+        canvas.addView(cardDeck, new FrameLayout.LayoutParams(-1, -1));
+        canvas.addView(statusHeader(back), new FrameLayout.LayoutParams(-1, Math.round(96 * screenScale())));
+        installPage(canvas, false); updateClock(); updateStatus();
+        if (reveal && ValueAnimator.areAnimatorsEnabled()) {
+            cardDeck.setTranslationY(100 * screenScale()); cardDeck.setAlpha(.4f);
+            cardDeck.animate().translationY(0).alpha(1).setDuration(240)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f)).start();
+        }
+    }
+
+    private void installPage(View content, boolean home) {
+        releaseCameraScreen();
+        navigationSurface = new NavigationSurface(this); navigationSurface.setHome(home);
+        navigationSurface.setListener(new NavigationSurface.Listener() {
+            @Override public void onQuickSettings() { showQuickSettings(); }
+            @Override public void onQuickHome() {
+                if (quickSettings.isVisible()) { quickSettings.dismiss(); return; }
+                recorderOverlay.abortAndDismiss(); hideKeyboard(); showHome();
+            }
+            @Override public void onOpenStack() {
+                if (page == Page.HOME && !recorderOverlay.isVisible() && !quickSettings.isVisible()) showDeck(true);
+            }
+        });
+        navigationSurface.addView(content, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(navigationSurface); configureWindow(); updateSurfaceMode(); updateControls();
+    }
+
+    private void updateSurfaceMode() {
+        boolean modal = (recorderOverlay != null && recorderOverlay.isVisible())
+                || (quickSettings != null && quickSettings.isVisible());
+        if (navigationSurface != null) navigationSurface.setHome(page == Page.HOME && !modal);
+        if (cardDeck != null) cardDeck.setEnabled(!modal);
+    }
+
+    private void showQuickSettings() {
+        if (!quickSettings.isVisible()) quickSettings.show(NavigationSurface.content(this));
+        updateSurfaceMode();
+    }
+
+    private View statusHeader(boolean back) {
+        FrameLayout header = new FrameLayout(this);
+        clockView = text("", 22, WARM_WHITE, Typeface.NORMAL); clockView.setGravity(Gravity.CENTER);
+        header.addView(clockView, new FrameLayout.LayoutParams(-1, -1));
+        if (back) {
+            TextView button = text("‹ back", 18, WARM_WHITE, Typeface.NORMAL);
+            button.setGravity(Gravity.CENTER_VERTICAL); button.setPadding(dp(14), 0, 0, 0);
+            button.setContentDescription("Back"); button.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View view) { onBackPressed(); }
+            });
+            header.addView(button, new FrameLayout.LayoutParams(dp(110), -1, Gravity.LEFT));
+        }
+        batteryIcon = new BatteryIcon(this);
+        FrameLayout.LayoutParams battery = new FrameLayout.LayoutParams(dp(27), dp(17), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        battery.rightMargin = dp(24); header.addView(batteryIcon, battery);
+        return header;
+    }
+
+    private float screenScale() { return getResources().getDisplayMetrics().widthPixels / 480f; }
+
+    private void showApps() { showApps(""); }
+
+    private void showApps(String filter) {
         savedSelection[page.ordinal()] = selection;
         page = Page.APPS;
         ArrayList<Entry> entries = new ArrayList<>();
-        entries.add(new Entry("Utilities", "Contacts, clock, recorder, compass", new Runnable() {
+        if (filter.isEmpty()) entries.add(new Entry("Utilities", "Contacts, clock, recorder, compass", new Runnable() {
             @Override public void run() { showUtilities(); }
         }));
 
@@ -423,9 +594,10 @@ public final class HomeActivity extends Activity {
         for (ResolveInfo info : resolved) {
             if (info.activityInfo == null || getPackageName().equals(info.activityInfo.packageName)) continue;
             String label = info.loadLabel(getPackageManager()).toString();
+            if (!label.toLowerCase(Locale.ROOT).contains(filter.toLowerCase(Locale.ROOT))) continue;
             ComponentName component = new ComponentName(
                     info.activityInfo.packageName, info.activityInfo.name);
-            entries.add(new Entry(label, "", new Runnable() {
+            entries.add(new Entry(component.flattenToString(), label, "", 0xfff5efe1, NavigationCard.Glyph.APPS, new Runnable() {
                 @Override public void run() {
                     launchIntent(new Intent(Intent.ACTION_MAIN)
                             .addCategory(Intent.CATEGORY_LAUNCHER)
@@ -433,7 +605,8 @@ public final class HomeActivity extends Activity {
                 }
             }));
         }
-        renderListPage("All apps", "Wheel to browse", entries);
+        if (entries.isEmpty()) renderListPage("apps", "No matching apps", entries);
+        else renderCardEntries(entries, savedSelection[Page.APPS.ordinal()], true, false);
     }
 
     private void showUtilities() {
@@ -460,6 +633,118 @@ public final class HomeActivity extends Activity {
         renderListPage("Utilities", "Simple tools", entries);
     }
 
+    private void showSettings() {
+        page = Page.SETTINGS;
+        ArrayList<Entry> entries = new ArrayList<>();
+        entries.add(new Entry("display & volume", "Brightness and media volume", new Runnable() {
+            @Override public void run() { showQuickSettings(); }
+        }));
+        entries.add(new Entry("wi-fi", "Network connections", new Runnable() {
+            @Override public void run() {
+                launchIntent(new Intent(Settings.ACTION_WIFI_SETTINGS), "Wi-Fi settings unavailable");
+            }
+        }));
+        entries.add(new Entry("bluetooth", "Connected devices", new Runnable() {
+            @Override public void run() {
+                launchIntent(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS), "Bluetooth settings unavailable");
+            }
+        }));
+        entries.add(new Entry("rabbit theme", "Home and lock screen", new Runnable() {
+            @Override public void run() {
+                launchIntent(new Intent(HomeActivity.this, ThemeActivity.class), "Theme unavailable");
+            }
+        }));
+        entries.add(new Entry("android settings", "All device controls", new Runnable() {
+            @Override public void run() { launchIntent(new Intent(Settings.ACTION_SETTINGS), "Settings unavailable"); }
+        }));
+        renderListPage("settings", "", entries);
+    }
+
+    private void showGames() {
+        page = Page.FEATURE;
+        ArrayList<Entry> games = new ArrayList<>();
+        Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        for (ResolveInfo info : getPackageManager().queryIntentActivities(query, 0)) {
+            if (info.activityInfo == null || info.activityInfo.applicationInfo.category != android.content.pm.ApplicationInfo.CATEGORY_GAME) continue;
+            String label = info.loadLabel(getPackageManager()).toString();
+            String pkg = info.activityInfo.packageName;
+            games.add(new Entry(label, "", new Runnable() {
+                @Override public void run() { launchPackage(pkg, null, "Game unavailable"); }
+            }));
+        }
+        renderListPage("r-cade", games.isEmpty() ? "No games installed" : "Installed games", games);
+    }
+
+    private void showWebCard(String title, String button, String url) {
+        page = Page.FEATURE;
+        ArrayList<Entry> entries = new ArrayList<>();
+        entries.add(new Entry(button, "Opens in your browser", new Runnable() {
+            @Override public void run() {
+                launchIntent(new Intent(Intent.ACTION_VIEW, Uri.parse(url)), "No browser is installed");
+            }
+        }));
+        renderListPage(title, "", entries);
+    }
+
+    private void showKeyboard() {
+        page = Page.KEYBOARD; cardDeck = null; homeVisual = null;
+        visibleEntries.clear(); selectableViews.clear(); scrollView = null;
+        LinearLayout root = rootColumn();
+        root.addView(statusHeader(true), new LinearLayout.LayoutParams(-1, dp(60)));
+        TextView label = text("find an app", 32, WARM_WHITE, Typeface.NORMAL);
+        label.setPadding(0, dp(24), 0, dp(18)); root.addView(label);
+        final EditText query = new EditText(this);
+        query.setSingleLine(true); query.setTextColor(WARM_WHITE); query.setHintTextColor(MUTED);
+        query.setTypeface(RabbitTypography.regular(this)); query.setHint("Type an app name");
+        query.setTextSize(22); query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        root.addView(query, new LinearLayout.LayoutParams(-1, dp(56)));
+        TextView search = text("search", 22, ORANGE, Typeface.NORMAL);
+        search.setGravity(Gravity.CENTER_VERTICAL); root.addView(search, new LinearLayout.LayoutParams(-1, dp(56)));
+        final Runnable runSearch = new Runnable() {
+            @Override public void run() {
+                String value = query.getText().toString().trim(); hideKeyboard(); showApps(value);
+            }
+        };
+        search.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { runSearch.run(); }
+        });
+        query.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override public boolean onEditorAction(TextView view, int action, KeyEvent event) {
+                if (action == EditorInfo.IME_ACTION_SEARCH
+                        || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                        && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                    runSearch.run(); return true;
+                }
+                return false;
+            }
+        });
+        installPage(root, false); updateClock(); updateStatus(); query.requestFocus();
+        query.post(new Runnable() {
+            @Override public void run() {
+                getSystemService(InputMethodManager.class).showSoftInput(
+                        query, InputMethodManager.SHOW_IMPLICIT);
+            }
+        });
+    }
+
+    private void hideKeyboard() {
+        getSystemService(InputMethodManager.class).hideSoftInputFromWindow(getWindow().getDecorView().getWindowToken(), 0);
+    }
+
+    private final class BatteryIcon extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        BatteryIcon(Context context) { super(context); }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float w = getWidth(), h = getHeight();
+            paint.setColor(WARM_WHITE); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(dp(1));
+            canvas.drawRoundRect(1, 1, w - dp(3), h - 1, dp(2), dp(2), paint);
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawRect(w - dp(2), h * .3f, w, h * .7f, paint);
+            if (batteryPercent > 0) canvas.drawRect(dp(3), dp(3), dp(3) + (w - dp(9)) * Math.min(100, batteryPercent) / 100f, h - dp(3), paint);
+        }
+    }
+
     private Entry packageEntry(String label, String detail, String packageName, Intent fallback) {
         return new Entry(label, detail, new Runnable() {
             @Override public void run() {
@@ -473,7 +758,9 @@ public final class HomeActivity extends Activity {
         visibleEntries.clear();
         visibleEntries.addAll(entries);
 
+        cardDeck = null; homeVisual = null;
         LinearLayout root = rootColumn();
+        root.addView(statusHeader(true), new LinearLayout.LayoutParams(-1, dp(60)));
         TextView heading = text(title, 34, WARM_WHITE, Typeface.BOLD);
         root.addView(heading, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
@@ -494,8 +781,7 @@ public final class HomeActivity extends Activity {
         root.addView(scrollView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        setContentView(root);
-        applyInsets(root);
+        installPage(root, false); updateClock(); updateStatus();
         selection = clamp(savedSelection[page.ordinal()], 0, Math.max(0, entries.size() - 1));
         applySelection(false);
     }
@@ -567,6 +853,7 @@ public final class HomeActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (cameraScreen != null) return cameraScreen.dispatchKeyEvent(event) || super.dispatchKeyEvent(event);
         int key = event.getKeyCode();
         InputDevice device = event.getDevice();
         boolean wheelVolume = device != null
@@ -579,25 +866,29 @@ public final class HomeActivity extends Activity {
         if (up || down) {
             // Consume both edges so the ROM never forwards this wheel tick to volume.
             if (event.getAction() != KeyEvent.ACTION_DOWN) return true;
+            if (quickSettings != null && quickSettings.handleWheel(up)) return true;
             if (recorderOverlay != null && recorderOverlay.handleWheel(up)) return true;
-            if (page == Page.IDLE) {
-                showHome();
+            if (page == Page.IDLE || page == Page.HOME) {
+                showDeck(true);
                 getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
                 return true;
             }
-            if (selectableViews.isEmpty()) return true;
+            if (visibleEntries.isEmpty()) return true;
             int delta = up ? -1 : 1;
-            selection = clamp(selection + delta, 0, selectableViews.size() - 1);
+            selection = clamp(selection + delta, 0, visibleEntries.size() - 1);
             savedSelection[page.ordinal()] = selection;
+            if (page == Page.DECK) navigation.select(selection);
             applySelection(true);
             getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
             return true;
         }
+        if (page == Page.KEYBOARD && key != KeyEvent.KEYCODE_DPAD_CENTER) return super.dispatchKeyEvent(event);
         if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER
                 || key == KeyEvent.KEYCODE_NUMPAD_ENTER) {
             if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                if (quickSettings != null && quickSettings.handleSingle()) return true;
                 if (recorderOverlay != null && recorderOverlay.handleSingle()) return true;
-                activateSelection();
+                if (page == Page.HOME) showDeck(true); else activateSelection();
             }
             return true;
         }
@@ -605,6 +896,7 @@ public final class HomeActivity extends Activity {
     }
 
     private void applySelection(boolean requestFocus) {
+        if (cardDeck != null) { cardDeck.setSelection(selection, requestFocus); return; }
         for (int i = 0; i < selectableViews.size(); i++) {
             LinearLayout row = (LinearLayout) selectableViews.get(i);
             boolean selected = i == selection;
@@ -628,24 +920,19 @@ public final class HomeActivity extends Activity {
     private void activateSelection() {
         if (selection < 0 || selection >= visibleEntries.size()) return;
         savedSelection[page.ordinal()] = selection;
-        visibleEntries.get(selection).action.run();
+        Entry entry = visibleEntries.get(selection);
+        entry.action.run();
     }
 
     @Override
     public void onBackPressed() {
-        if (recorderOverlay != null && recorderOverlay.isVisible()) {
-            recorderOverlay.abortAndDismiss();
-            return;
-        }
-        if (page == Page.UTILITIES) {
-            savedSelection[page.ordinal()] = selection;
-            showApps();
-        } else if (page == Page.APPS) {
-            savedSelection[page.ordinal()] = selection;
-            showHome();
-        } else {
-            showHome();
-        }
+        if (cameraScreen != null) { cameraScreen.onBackPressed(); return; }
+        if (quickSettings.isVisible()) { quickSettings.dismiss(); return; }
+        if (recorderOverlay.isVisible()) { recorderOverlay.abortAndDismiss(); showDeck(false); return; }
+        hideKeyboard(); savedSelection[page.ordinal()] = selection;
+        if (page == Page.UTILITIES) showApps();
+        else if (page == Page.DECK || page == Page.HOME) showHome();
+        else showDeck(false);
     }
 
     private void openDialer() {
@@ -661,26 +948,52 @@ public final class HomeActivity extends Activity {
     }
 
     private void openCamera() {
-        launchIntent(new Intent(this, CameraActivity.class), "Camera isn't available");
+        if (cameraScreen != null) return;
+        cameraReturnHome = page == Page.HOME || page == Page.IDLE;
+        markOpened("camera");
+        recorderOverlay.abortAndDismiss(); quickSettings.dismiss();
+        gestures.cancel(); hardware.stop();
+        page = Page.CAMERA;
+        homeVisual = null; cardDeck = null; navigationSurface = null;
+        clockView = dateView = statusView = null; batteryIcon = null; scrollView = null;
+        visibleEntries.clear(); selectableViews.clear();
+        cameraScreen = new CameraScreen(this, new CameraScreen.Host() {
+            @Override public void onBack() { showDeck(false); }
+            @Override public void onDoubleBack() {
+                if (cameraReturnHome) showHome(); else showDeck(false);
+            }
+            @Override public void onHome() { showHome(); }
+            @Override public void onKeyboard() { showKeyboard(); }
+            @Override public void onSettings() { showSettings(); }
+        });
+        setContentView(cameraScreen.getView()); configureWindow();
+        if (resumed) cameraScreen.onResume();
+    }
+
+    private void releaseCameraScreen() {
+        CameraScreen old = cameraScreen;
+        cameraScreen = null;
+        if (old != null) old.release();
     }
 
     private void openMusic() {
         Intent musicCategory = new Intent(Intent.ACTION_MAIN)
                 .addCategory("android.intent.category.APP_MUSIC");
-        if (launchPackageQuietly("org.akanework.gramophone")) return;
-        launchPackage("com.android.music", musicCategory, "No music app is available");
+        if (launchPackageQuietly("org.akanework.gramophone")
+                || launchPackage("com.android.music", musicCategory, "No music app is available")) markOpened("music");
     }
 
-    private void launchPackage(String packageName, Intent fallback, String error) {
-        launchPackage(packageName, fallback, null, error);
+    private boolean launchPackage(String packageName, Intent fallback, String error) {
+        return launchPackage(packageName, fallback, null, error);
     }
 
-    private void launchPackage(String packageName, Intent fallbackOne, Intent fallbackTwo,
+    private boolean launchPackage(String packageName, Intent fallbackOne, Intent fallbackTwo,
             String error) {
-        if (launchPackageQuietly(packageName)) return;
-        if (launchIntentQuietly(fallbackOne)) return;
-        if (launchIntentQuietly(fallbackTwo)) return;
+        if (launchPackageQuietly(packageName)) return true;
+        if (launchIntentQuietly(fallbackOne)) return true;
+        if (launchIntentQuietly(fallbackTwo)) return true;
         showError(error);
+        return false;
     }
 
     private boolean launchPackageQuietly(String packageName) {
@@ -688,8 +1001,10 @@ public final class HomeActivity extends Activity {
         return launchIntentQuietly(launch);
     }
 
-    private void launchIntent(Intent intent, String error) {
-        if (!launchIntentQuietly(intent)) showError(error);
+    private boolean launchIntent(Intent intent, String error) {
+        if (launchIntentQuietly(intent)) return true;
+        showError(error);
+        return false;
     }
 
     private boolean launchIntentQuietly(Intent intent) {
@@ -701,6 +1016,7 @@ public final class HomeActivity extends Activity {
         }
         try {
             startActivity(intent);
+            returningFromApp = true;
             return true;
         } catch (RuntimeException ignored) {
             return false;
@@ -720,11 +1036,14 @@ public final class HomeActivity extends Activity {
 
     private void updateClock() {
         Date now = new Date();
+        if (homeVisual != null) homeVisual.setStatus(new SimpleDateFormat("h:mm", Locale.getDefault()).format(now), batteryPercent);
         if (clockView != null) clockView.setText(new SimpleDateFormat("h:mm", Locale.getDefault()).format(now));
         if (dateView != null) dateView.setText(new SimpleDateFormat("EEEE · MMM d", Locale.getDefault()).format(now));
     }
 
     private void updateStatus() {
+        if (homeVisual != null) updateClock();
+        if (batteryIcon != null) { batteryIcon.setContentDescription("Battery " + batteryPercent + " percent"); batteryIcon.invalidate(); }
         if (statusView == null) return;
         if (recording) {
             statusView.setText("Recording · release button to save");

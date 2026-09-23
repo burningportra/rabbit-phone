@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the R1 helper and run source-only native and gesture checks."""
+"""Build the R1 helper and run source-only native, gesture, and card-navigation checks."""
 import argparse
 import json
 import os
@@ -32,7 +32,7 @@ def ndk_clang():
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Build the Android helper and run host C sanitizer and Java gesture tests.')
+        description='Build the Android helper and run host C sanitizer plus Java navigation tests.')
     parser.parse_args()
 
     output = ROOT / 'hardware/rabbit-hardware'
@@ -61,14 +61,20 @@ def main():
         java_classes.mkdir()
         run([java / 'javac', '-encoding', 'UTF-8', '-d', java_classes,
              ROOT / 'app/src/com/kevtrinh/rabbitphone/ButtonGestures.java',
-             ROOT / 'tests/ButtonGesturesTest.java'])
-        result = run([java / 'java', '-cp', java_classes, 'ButtonGesturesTest'], capture=True)
-        print(result.stdout, end='')
-        if '15 gesture cases passed' not in result.stdout:
+             ROOT / 'tests/ButtonGesturesTest.java',
+             ROOT / 'app/src/com/kevtrinh/rabbitphone/CardNavigation.java',
+             ROOT / 'tests/CardNavigationTest.java'])
+        gesture = run([java / 'java', '-cp', java_classes, 'ButtonGesturesTest'], capture=True)
+        navigation = run([java / 'java', '-cp', java_classes, 'CardNavigationTest'], capture=True)
+        print(gesture.stdout, end='')
+        print(navigation.stdout, end='')
+        if '15 gesture cases passed' not in gesture.stdout:
             raise RuntimeError('ButtonGestures test receipt did not report all 15 cases')
+        if 'Card navigation cases passed' not in navigation.stdout:
+            raise RuntimeError('CardNavigation test receipt did not report all cases')
 
     run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py', '-v'])
-    print('Checks passed: NDK helper, native sanitizers, 15 gestures, font/theme recovery tests.')
+    print('Checks passed: NDK helper, native sanitizers, gestures, card navigation, font/theme recovery tests.')
 
 
 if __name__ == '__main__':

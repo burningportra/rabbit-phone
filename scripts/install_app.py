@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Install the built launcher, grant its explicit media features, and set HOME."""
 import argparse
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
-from device import select_r1
+from device import select_r1, require_evidence_serial
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = 'com.kevtrinh.rabbitphone'
@@ -24,6 +25,16 @@ def main():
     subprocess.run(['adb', '-s', serial, 'install', '-r', '--no-incremental', str(apk)], check=True)
     for permission in ['android.permission.CAMERA', 'android.permission.RECORD_AUDIO']:
         subprocess.run(['adb', '-s', serial, 'shell', 'pm', 'grant', PACKAGE, permission], check=True)
+    # Save the previous special-access grant once; it does not change brightness.
+    grant_backup = ROOT / 'evidence/navigation-write-settings-before.json'
+    if grant_backup.exists():
+        require_evidence_serial(json.loads(grant_backup.read_text()), serial, grant_backup)
+    else:
+        previous = subprocess.check_output(['adb', '-s', serial, 'shell', 'cmd', 'appops',
+            'get', PACKAGE, 'WRITE_SETTINGS'], text=True).strip()
+        grant_backup.write_text(json.dumps({'device_serial': serial, 'write_settings': previous}, indent=2) + '\n')
+    subprocess.run(['adb', '-s', serial, 'shell', 'cmd', 'appops', 'set', PACKAGE,
+                    'WRITE_SETTINGS', 'allow'], check=True)
     subprocess.run(['adb', '-s', serial, 'shell', 'cmd', 'package', 'set-home-activity',
                     PACKAGE + '/.HomeActivity'], check=True)
     print('Installed Rabbit Phone. Media capture still requires a user gesture.')
