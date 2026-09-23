@@ -22,6 +22,10 @@ for the owner's device.
   task, such as a running timer; the legacy `opened_cards` ordering cache is not
   used. Top-edge swipe opens brightness, media volume,
   camera, keyboard, lock and settings; bottom-edge swipe returns Home.
+- Home rises and fades as the stack comes into view. A selected card expands,
+  holds briefly, then enlarges/fades into its feature. Back reveals the card
+  before returning Home. Timing follows frame measurements from the official
+  demo; exact easing and some source compositing remain unverified.
 - The wheel browses the overlapping cards and app list with haptic
   ticks. The R1 wheel does not physically click; its side button selects instead.
 - Phone/SMS are launched through standard intents and existing default apps.
@@ -208,7 +212,9 @@ python3 scripts/verify_gallery.py --device-test
 
 The card-flow check exercises Translator's language picker and the Translator,
 Timer and Recorder Back paths. Its optional interruption checks temporarily slow
-or disable Android animations, then restore the original setting. The camera check opens its preview without taking photos. The quick-settings
+or disable Android animations, then verify restoration of both the stored
+setting and the app's live animation rate. Build/install the current APK before
+running those checks; its read-only navigation diagnostic is required. The camera check opens its preview without taking photos. The quick-settings
 check temporarily changes brightness and volume, verifies restart persistence,
 and restores its own changes. The native Settings check also exercises child Back
 paths, overlay re-entry, Android panel return, sleep and sound-effect preferences;

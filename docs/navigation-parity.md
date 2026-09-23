@@ -56,13 +56,34 @@ interpolation, system-edge ownership and all return paths still require direct
 implementation comparison; source compilation or a colorful mockup alone do
 not establish one-to-one navigation parity.
 
-The demo gives a tighter translator motion reference. At 238.9 seconds the
-selected Translator strip has grown into its full green face; the native setup
-page is established by 239.6 seconds. A Back action starts at 241.6 seconds,
-recreates the full card face through roughly 242.6 seconds, and reaches Home by
-242.8 seconds. The app uses a 720 ms open transition and a 1200 ms feature-exit
-transition to preserve that ordered sequence. Those durations are implementation
-choices informed by the footage, not yet a device-timing receipt.
+Frame-by-frame measurement of the 30 fps demo refines the Translator sequence:
+the first visible opening response is frame 7164 (238.800 s), the stack is gone
+at 7173 (239.100 s), enlargement/fade begins around 7183 (239.433 s), and the
+feature is clean at 7188 (239.600 s). Version 0.13 uses a 300 ms expansion,
+333 ms hold and 167 ms enlarging fade, totaling 800 ms. This replaces the earlier
+coarse 720 ms estimate. The card enlarges about 26% during the filmed fade while
+the physical screen width changes less than 1%; the owner's fuller geometry is
+retained and clips the enlarging face below the status header.
+
+Back first responds at frame 7246 (241.533 s), settles at 7260 (242.000 s), then
+cuts from the full face to Home at 7281 (242.700 s), about 1167 ms total. The app
+now reveals the returning card upward, holds it, and cuts to Home instead of
+adding a final shrink/fade. The recording contains blank frames and ghosted
+Home/feature overlap during its initial response; exact opacity and easing
+cannot be recovered from that footage. The implementation uses a clean early
+Home crossfade and cubic interpolation, so those details remain interpretations.
+
+Home-to-stack settles in about 333 ms (frames 6943–6953). Its native wrapper
+raises the stack from below the viewport while Home rises/fades, then removes
+the decorative backdrop. Input, focus loss and detachment can finish it safely;
+new card activation reads source bounds only after that reveal has settled.
+
+The current official user guide supplies a static mascot PNG. Its three looping
+GIFs illustrate AI, Magic and Timer features, not a documented Home idle state.
+The launch demo shows a different avatar and listening ear poses, but the
+inspected Home intervals do not establish a continuous idle loop. Home mascot
+motion therefore remains unverified; no decorative bobbing was added as a
+substitute for evidence.
 
 ## Feature transitions, Translator and recorder navigation in 0.9.0
 

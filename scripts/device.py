@@ -1,7 +1,33 @@
 #!/usr/bin/env python3
 """Select the intended Rabbit R1 without embedding a private device serial."""
 import os
+import re
 import subprocess
+import time
+
+
+def wake_for_ui(device, timeout=8):
+    """Wait for real wake/unlock state; never bypass an authentication lock."""
+    device.shell('input', 'keyevent', 'KEYCODE_WAKEUP')
+    deadline = time.monotonic() + timeout
+    unlocked_samples = 0
+    while time.monotonic() < deadline:
+        awake = bool(re.search(r'^\s*mWakefulness=Awake\s*$',
+                               device.shell('dumpsys', 'power'), re.MULTILINE))
+        policy = device.shell('dumpsys', 'window', 'policy')
+        delegate = policy.partition('KeyguardServiceDelegate')[2].partition('KeyguardStateMonitor')[0]
+        flags = dict(re.findall(r'^\s*(showing|secure|inputRestricted)=(true|false)\s*$',
+                                delegate, re.MULTILINE))
+        if flags.get('showing') == 'true' and flags.get('secure') == 'true':
+            raise RuntimeError('Unlock the R1 normally before running UI checks')
+        unlocked = awake and flags.get('showing') == 'false' and flags.get('inputRestricted') == 'false'
+        unlocked_samples = unlocked_samples + 1 if unlocked else 0
+        if unlocked_samples >= 2:
+            return
+        if awake and flags.get('showing') == 'true' and flags.get('secure') == 'false':
+            device.shell('wm', 'dismiss-keyguard')
+        time.sleep(.25)
+    raise RuntimeError('R1 did not reach a confirmed awake, unlocked state')
 
 
 def _connected_devices():

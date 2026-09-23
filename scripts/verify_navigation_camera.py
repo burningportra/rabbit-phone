@@ -64,7 +64,7 @@ def main():
         top()
         for _ in range(3): wheel_down(d); time.sleep(.08)
         press(); time.sleep(.65)
-        check('camera_side_button_selects_settings', 'android settings' in dump_ui(d))
+        check('camera_side_button_selects_settings', 'Rabbit settings' in dump_ui(d))
         d.shell('input', 'swipe', 240, 622, 240, 395, 300)
         check('camera_settings_returns_home', 'Rabbit home.' in dump_ui(d))
         press(2); time.sleep(.85)

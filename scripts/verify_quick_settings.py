@@ -8,7 +8,7 @@ import shlex
 import subprocess
 import time
 
-from device import select_r1
+from device import select_r1, wake_for_ui
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,9 +46,7 @@ class ADBDevice:
                                       'RECORD_AUDIO').lower()
 
     def home(self):
-        self.shell('input', 'keyevent', 'KEYCODE_WAKEUP')
-        time.sleep(.3)
-        self.shell('wm', 'dismiss-keyguard')
+        wake_for_ui(self)
         self.shell('am', 'start', '-W', '-a', 'android.intent.action.MAIN',
                    '-c', 'android.intent.category.HOME', '-n', PACKAGE + '/.HomeActivity')
 

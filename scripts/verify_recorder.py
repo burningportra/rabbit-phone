@@ -16,7 +16,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
-from device import select_r1
+from device import select_r1, wake_for_ui
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = 'com.kevtrinh.rabbitphone'
@@ -69,9 +69,7 @@ class Device:
         self.shell('sendevent', driver, '0', '0', '0')
 
     def home(self):
-        self.shell('input', 'keyevent', 'KEYCODE_WAKEUP')
-        time.sleep(.3)
-        self.shell('wm', 'dismiss-keyguard')
+        wake_for_ui(self)
         self.shell('am', 'start', '-W', '-a', 'android.intent.action.MAIN',
                    '-c', 'android.intent.category.HOME', '-n', PACKAGE + '/.HomeActivity')
         deadline = time.monotonic() + 5

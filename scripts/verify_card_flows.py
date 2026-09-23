@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 
 from verify_recorder import Device, PACKAGE, ROOT
 from verify_playback import volume, wheel_down, wheel_driver, wheel_up
+from animation_scale import AnimationScaleGuard
 
 
 MAX_TICKS = 20
@@ -138,7 +139,7 @@ def timer_flow(device, wheel, driver):
     open_deck(device, wheel)
     select_card(device, wheel, 'timer')
     side_click(device, driver)
-    # The card's own accessibility title remains visible before its 600ms route
+    # The card's own accessibility title remains visible before its 633ms route
     # transition completes, so do not treat an immediate dump as feature proof.
     time.sleep(.8)
     ui = wait_for(device, lambda value: 'Custom timer' in value and 'Start 1 minute timer' in value,
@@ -163,13 +164,8 @@ def recorder_flow(device, wheel, driver):
 
 
 def interrupt_flow(device, wheel, driver, result):
-    original = device.shell('settings', 'get', 'global', 'animator_duration_scale')
-    last_set = None
-    def scale(value):
-        nonlocal last_set
-        device.shell('settings', 'put', 'global', 'animator_duration_scale', value)
-        last_set = value
-        time.sleep(.25)
+    animation_scale = AnimationScaleGuard(device)
+    scale = animation_scale.set
     def start():
         home(device); open_deck(device, wheel); select_card(device, wheel, 'translator')
         side_click(device, driver)
@@ -229,12 +225,10 @@ def interrupt_flow(device, wheel, driver, result):
         wait_for(device, lambda ui: 'Rabbit home.' in ui, 'Reduced-motion Back did not return Home')
         check('reduced_motion_back_returns_home', True)
     finally:
-        current = device.shell('settings', 'get', 'global', 'animator_duration_scale')
-        if current == last_set:
-            if original != 'null': device.shell('settings', 'put', 'global', 'animator_duration_scale', original)
-            else: device.shell('settings', 'delete', 'global', 'animator_duration_scale')
-        result['animator_duration_scale_restored'] = (
-            device.shell('settings', 'get', 'global', 'animator_duration_scale') == original)
+        result['animator_duration_scale_restored'] = False
+        result['animator_duration_scale_restored'] = animation_scale.restore()
+        require(result['animator_duration_scale_restored'],
+                'Animator duration scale changed externally or could not be restored')
 
 
 def main():

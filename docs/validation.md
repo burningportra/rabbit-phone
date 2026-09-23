@@ -264,6 +264,45 @@ bottom-edge Home, recorder routing, modal accessibility and unchanged volume.
 The final device pass checked first-row wheel focus, the readable Device info
 page and its Back chain, unchanged preferences/notes, and the installed APK hash.
 
+## Motion and animation-state recovery in 0.13
+
+A real screen recording exposed a false restoration receipt: the saved Android
+animator setting was absent (`null`), but the app's effective scale was `0.0` and
+animations were disabled. Earlier interruption tests had set scale zero and then
+deleted the key. Android's [WindowManagerService](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android16-release/services/core/java/com/android/server/wm/WindowManagerService.java#1492)
+uses its cached value as the fallback for an absent setting, so checking only
+the database did not prove restoration. The device was repaired to live scale
+1.0 while leaving the stored key absent. Existing notes, volume and timer state
+were preserved; startup does not override a user's animation preference.
+
+The interruption verifier now captures both stored and effective state. To
+restore an originally absent key, it writes the captured effective value, waits
+for the app's callback, deletes the key, and checks both values. Explicit zero
+and nondefault preferences remain supported; outside changes are not overwritten.
+Fifteen regression cases cover the cached-default failure, asynchronous callbacks,
+missing/invalid diagnostics, timeouts and cleanup. The read-only Activity dump
+argument `rabbit-navigation` exposes only page/transition state and animator
+scale, with no mutator or device identifiers.
+
+The native Home-to-stack reveal now rises/fades over 333 ms. Card opening uses
+the measured 800 ms sequence; return reveals a card upward, holds it, and cuts
+to Home at 1167 ms. The fuller 432 px geometry is retained. A captured Translator
+sequence contains 116 decoded frames instead of the seven-frame disabled-motion
+baseline. Its visible opening measured about 805 ms and its return about 1152 ms,
+within a sampled frame of the intended timing; the expansion, hold, enlarging
+fade and return were visually inspected. A pixel check also confirms that Home's
+centered battery no longer leaks above the settled return card.
+Exact easing and the filmed display's ghosting remain outside the proven match.
+
+UI verification also now waits for confirmed wake and unlocked keyguard state
+instead of assuming a 300 ms delay is enough. Actual asleep/already-awake paths
+passed; four host cases cover late keyguard appearance, stable unlock evidence,
+missing state and refusal to dismiss an authentication lock. The combined
+Python suite passes 87 tests, alongside the native/gesture/card/timer checks.
+All 15 device flow/interruption assertions passed after the repair, including
+late-route cancellation, focus loss, wheel interruption on return, cancellation
+after Recorder reveal, reduced-motion Back and stored/live scale restoration.
+
 ## Important boundaries
 
 - Runtime haptics, microphone quality and physical feel are separate from a

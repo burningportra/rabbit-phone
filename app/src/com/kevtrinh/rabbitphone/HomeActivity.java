@@ -91,6 +91,7 @@ public final class HomeActivity extends Activity {
     private CardNavigation navigation;
     private NavigationSurface navigationSurface;
     private RabbitHomeView homeVisual;
+    private HomeStackReveal homeStackReveal;
     private CardDeckView cardDeck;
     private QuickSettingsOverlay quickSettings;
     private BatteryIcon batteryIcon;
@@ -249,6 +250,7 @@ public final class HomeActivity extends Activity {
     @Override
     protected void onPause() {
         resumed = false;
+        finishHomeReveal();
         if (hardwarePage != null) hardwarePage.setHostActive(false);
         cancelCardTransition(true);
         controlsHandler.removeCallbacks(timerTick);
@@ -273,6 +275,7 @@ public final class HomeActivity extends Activity {
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
         if (!focused) {
+            finishHomeReveal();
             if (hardwarePage != null) hardwarePage.setHostActive(false);
             cancelCardTransition(true);
         }
@@ -514,6 +517,23 @@ public final class HomeActivity extends Activity {
         navigation.visit(id);
     }
 
+    @Override public void dump(String prefix, java.io.FileDescriptor descriptor,
+            java.io.PrintWriter writer, String[] args) {
+        if (args != null) for (String argument : args) {
+            if ("rabbit-navigation".equals(argument)) {
+                writer.println(prefix + "rabbit_navigation_page=" + page);
+                writer.println(prefix + "rabbit_animators_enabled=" + ValueAnimator.areAnimatorsEnabled());
+                if (android.os.Build.VERSION.SDK_INT >= 33)
+                    writer.println(prefix + "rabbit_animator_duration_scale=" + ValueAnimator.getDurationScale());
+                writer.println(prefix + "rabbit_card_transition_active=" + (cardTransition != null));
+                writer.println(prefix + "rabbit_home_reveal_active="
+                        + (homeStackReveal != null && homeStackReveal.isRevealing()));
+                return;
+            }
+        }
+        super.dump(prefix, descriptor, writer, args);
+    }
+
     private void showHome() {
         activeFeatureId = null; pendingReturnCard = null;
         page = Page.HOME;
@@ -538,7 +558,6 @@ public final class HomeActivity extends Activity {
     private void renderCardEntries(List<Entry> entries, int selected, boolean back, boolean reveal) {
         selectableViews.clear(); visibleEntries.clear(); visibleEntries.addAll(entries);
         homeVisual = null; scrollView = null; clockView = dateView = statusView = null;
-        FrameLayout canvas = new FrameLayout(this); canvas.setBackgroundColor(Color.BLACK);
         cardDeck = new CardDeckView(this);
         ArrayList<NavigationCard> cards = new ArrayList<>();
         TimerStore.Snapshot timer = timerSnapshot();
@@ -565,17 +584,29 @@ public final class HomeActivity extends Activity {
                 getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.CONFIRM);
             }
         });
-        canvas.addView(cardDeck, new FrameLayout.LayoutParams(-1, -1));
-        canvas.addView(cardStatusHeader(back, WARM_WHITE), new FrameLayout.LayoutParams(-1, Math.round(80 * screenScale())));
-        installPage(canvas, false); updateClock(); updateStatus(); refreshTimerTick();
-        if (reveal && ValueAnimator.areAnimatorsEnabled()) {
-            cardDeck.setTranslationY(100 * screenScale()); cardDeck.setAlpha(.4f);
-            cardDeck.animate().translationY(0).alpha(1).setDuration(240)
-                    .setInterpolator(new android.view.animation.DecelerateInterpolator(1.5f)).start();
+        View header = cardStatusHeader(back, WARM_WHITE);
+        FrameLayout canvas;
+        if (reveal) {
+            RabbitHomeView backdrop = new RabbitHomeView(this);
+            backdrop.setStatus(new SimpleDateFormat("h:mm", Locale.getDefault()).format(new Date()), batteryPercent);
+            canvas = new HomeStackReveal(this, backdrop, cardDeck, header);
+        } else {
+            canvas = new FrameLayout(this); canvas.setBackgroundColor(Color.BLACK);
+            canvas.addView(cardDeck, new FrameLayout.LayoutParams(-1, -1));
+            canvas.addView(header, new FrameLayout.LayoutParams(-1, Math.round(80 * screenScale())));
         }
+        installPage(canvas, false); updateClock(); updateStatus(); refreshTimerTick();
+        if (canvas instanceof HomeStackReveal) ((HomeStackReveal) canvas).start();
+    }
+
+    private void finishHomeReveal() {
+        if (homeStackReveal != null) homeStackReveal.finishReveal();
     }
 
     private void installPage(View content, boolean home) {
+        HomeStackReveal nextReveal = content instanceof HomeStackReveal ? (HomeStackReveal) content : null;
+        if (homeStackReveal != nextReveal) finishHomeReveal();
+        homeStackReveal = nextReveal;
         if (cardTransition != null && !cardTransition.isRevealing()) cancelCardTransition(false);
         controlsHandler.removeCallbacks(timerTick);
         if (page != Page.TIMER_SETUP && page != Page.TRANSLATOR && page != Page.GALLERY
@@ -599,6 +630,7 @@ public final class HomeActivity extends Activity {
     private void updateSurfaceMode() {
         boolean modal = (recorderOverlay != null && recorderOverlay.isVisible())
                 || (quickSettings != null && quickSettings.isVisible()) || cardTransition != null;
+        if (modal) finishHomeReveal();
         if (navigationSurface != null) navigationSurface.setHome(page == Page.HOME && !modal);
         if (cardDeck != null) cardDeck.setEnabled(!modal);
         if (hardwarePage != null) {
@@ -1192,6 +1224,7 @@ public final class HomeActivity extends Activity {
                     && (transitionKey == KeyEvent.KEYCODE_VOLUME_UP || transitionKey == KeyEvent.KEYCODE_VOLUME_DOWN));
         boolean transitionSelect = transitionKey == KeyEvent.KEYCODE_DPAD_CENTER || transitionKey == KeyEvent.KEYCODE_ENTER
                 || transitionKey == KeyEvent.KEYCODE_NUMPAD_ENTER;
+        if (event.getAction() == KeyEvent.ACTION_DOWN && (transitionWheel || transitionSelect)) finishHomeReveal();
         if (cardTransition != null && event.getAction() == KeyEvent.ACTION_DOWN && (transitionWheel || transitionSelect))
             cancelCardTransition(true);
         if (cameraScreen != null) return cameraScreen.dispatchKeyEvent(event) || super.dispatchKeyEvent(event);
@@ -1261,6 +1294,7 @@ public final class HomeActivity extends Activity {
     }
 
     private void activateSelection() {
+        finishHomeReveal();
         if (!resumed || !hasWindowFocus() || cardTransition != null || quickSettings.isVisible() || recorderOverlay.isVisible()) return;
         if (selection < 0 || selection >= visibleEntries.size()) return;
         savedSelection[page.ordinal()] = selection;

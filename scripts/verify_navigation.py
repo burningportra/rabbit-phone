@@ -63,7 +63,7 @@ def main():
         release = 'sendevent ' + driver + ' 1 116 0; sendevent ' + driver + ' 0 0 0'
         device.adb('shell', 'trap ' + shlex.quote(release) + ' EXIT; sendevent ' + driver
                    + ' 1 116 1; sendevent ' + driver + ' 0 0 0; sleep .075; ' + release)
-        # Single-click arbitration plus the 720ms feature reveal must settle.
+        # Single-click arbitration plus the 800ms feature transition must settle.
         time.sleep(1.15)
 
     try:

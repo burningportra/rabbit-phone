@@ -18,6 +18,10 @@ import java.util.Map;
 
 /** Transient card face in the existing window. It never owns hardware or feature state. */
 public final class CardTransition extends FrameLayout {
+    // Measured at 30 fps in the official rabbitOS 2 Translator sequence.
+    private static final long OPEN_MS = 800L, RETURN_MS = 1167L;
+    private static final float EXPAND_MS = 300f, REVEAL_AT_MS = 633f;
+    private static final float RETURN_APPEAR_MS = 167f, RETURN_SETTLED_MS = 467f;
     public interface Listener {
         void onReveal(CardTransition transition);
         void onFinished(CardTransition transition);
@@ -88,7 +92,7 @@ public final class CardTransition extends FrameLayout {
             finish();
             return;
         }
-        final long duration = exiting ? 1200L : 720L;
+        final long duration = exiting ? RETURN_MS : OPEN_MS;
         animator = ValueAnimator.ofFloat(0f, duration);
         animator.setDuration(duration);
         animator.setInterpolator(new LinearInterpolator());
@@ -96,10 +100,9 @@ public final class CardTransition extends FrameLayout {
             @Override public void onAnimationUpdate(ValueAnimator value) {
                 if (!active) return;
                 elapsed = (Float) value.getAnimatedValue();
-                if (!exiting && elapsed >= 600f) reveal();
+                if (!exiting && elapsed >= REVEAL_AT_MS) reveal();
                 if (home != null) home.setAlpha(clamp(elapsed / 180f));
-                if (header != null) header.setAlpha(clamp((elapsed - 80f) / 120f)
-                        * (1f - ease((elapsed - 1050f) / 150f)));
+                if (header != null) header.setAlpha(clamp((elapsed - RETURN_APPEAR_MS) / 100f));
                 face.invalidate();
             }
         });
@@ -179,26 +182,39 @@ public final class CardTransition extends FrameLayout {
                     ox + 456f * scale, oy + 596f * scale);
             float alpha;
             if (!exiting) {
-                float growth = ease(elapsed / 120f);
+                float growth = ease(elapsed / EXPAND_MS);
                 bounds.set(mix(source.left, full.left, growth), mix(source.top, full.top, growth),
                         mix(source.right, full.right, growth), mix(source.bottom, full.bottom, growth));
-                alpha = elapsed < 600f ? 1f : 1f - clamp((elapsed - 600f) / 120f);
+                float revealing = clamp((elapsed - REVEAL_AT_MS) / (OPEN_MS - REVEAL_AT_MS));
+                float zoom = 1f + .26f * ease(revealing);
+                float centerX = bounds.centerX(), centerY = bounds.centerY();
+                float halfWidth = bounds.width() * zoom / 2f, halfHeight = bounds.height() * zoom / 2f;
+                bounds.set(centerX - halfWidth, centerY - halfHeight, centerX + halfWidth, centerY + halfHeight);
+                alpha = 1f - revealing;
                 paint.setColor(Color.BLACK); paint.setAlpha(Math.round(255f * growth * alpha));
                 canvas.drawRect(0, oy + 84f * scale, getWidth(), getHeight(), paint);
             } else {
-                float arriving = ease((elapsed - 80f) / 180f);
-                float departing = ease((elapsed - 1050f) / 150f);
-                float size = mix(.82f, 1f, arriving) * mix(1f, .88f, departing);
+                float arriving = ease((elapsed - RETURN_APPEAR_MS) / (RETURN_SETTLED_MS - RETURN_APPEAR_MS));
+                float size = mix(.9f, 1f, arriving);
+                float rise = full.height() * .6f * (1f - arriving);
                 float halfWidth = full.width() * size / 2f, halfHeight = full.height() * size / 2f;
-                bounds.set(full.centerX() - halfWidth, full.centerY() - halfHeight,
-                        full.centerX() + halfWidth, full.centerY() + halfHeight);
-                alpha = clamp((elapsed - 80f) / 120f) * (1f - departing);
+                bounds.set(full.centerX() - halfWidth, full.centerY() - halfHeight + rise,
+                        full.centerX() + halfWidth, full.centerY() + halfHeight + rise);
+                alpha = clamp((elapsed - RETURN_APPEAR_MS) / 100f);
                 paint.setColor(Color.BLACK); paint.setAlpha(Math.round(255f * alpha));
-                canvas.drawRect(0, oy + 84f * scale, getWidth(), getHeight(), paint);
+                // The return header is a separate child above this face; cover
+                // Home's centered battery/clock once the card takes ownership.
+                canvas.drawRect(0, 0, getWidth(), getHeight(), paint);
             }
             int layer = canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), Math.round(255f * alpha));
+            // The fuller owner-requested card can expand beyond the viewport;
+            // keep the status header clear while it gives way to the feature.
+            canvas.clipRect(0, oy + 84f * scale, getWidth(), getHeight());
+            int cardClip = canvas.save();
+            if (exiting) canvas.clipRect(full.left, full.top, full.right, full.bottom);
             renderer.drawTransitionFace(canvas, card, bounds);
-            if (exiting && bounds.height() >= 490f * scale) {
+            canvas.restoreToCount(cardClip);
+            if (exiting && elapsed >= RETURN_SETTLED_MS) {
                 paint.setColor(cueColor); paint.setAlpha(255);
                 canvas.drawRoundRect(bounds.left + 4f * scale, bounds.bottom + 20f * scale,
                         bounds.right - 4f * scale, bounds.bottom + 36f * scale, 4f * scale, 4f * scale, paint);
