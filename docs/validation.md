@@ -5,17 +5,18 @@ stock v0.8.293 kernel, portrait 480 × 640 at 190 dpi.
 
 ## Evidence established
 
-- Native APK build and v2/v3 signature verification pass. The current 0.4.0
-  build is 106,899 bytes with SHA-256
-  `3d48377b439a4160835ac0755c1ff35430b281bef3f8d367bd26eeb3e5053b3c`.
+- Native APK build and v2/v3 signature verification pass. The current 0.4.1
+  build is 115,091 bytes with SHA-256
+  `38ed5511d4e1482dc777b85b2364d0497d824148deb0ed31dd9fb64e7cb268e0`.
 - Fifteen gesture-state cases pass, including duplicate edges, hold vs click,
   single/double/five/eight presses, cancellation, delayed holds and delayed
   separated clicks. Tests do not invoke actual shutdown or record media.
 - Native C builds for AArch64 Android API 26 with strict warnings. Parser,
   duplicate power-driver and heartbeat tests pass with address/undefined-behavior
   sanitizers on the host.
-- Fifty-five Python cases pass: 6 Contacts resource-patch cases, 8 bundled-font
-  cases, 34 tracked-APK/session cases and 7 theme boot/restore cases.
+- Sixty-eight Python cases pass: 6 Contacts resource-patch cases, 8 bundled-font
+  cases, 34 tracked-APK/session cases, 7 theme boot/restore cases, 9 Assistant
+  profile transactions and 4 helper-update/rollback cases.
 - Raw events injected through the actual wheel input device navigate the home
   screen and scroll the app list without changing media volume.
 - Raw power-driver events open the selected item. Three Home → Camera → Home
@@ -60,6 +61,44 @@ The checks used `scripts/verify_recorder.py --record-test`, once normally and on
 with `--camera`. Ignored `evidence/recorder/home/` and `camera/` retain screenshots
 and structured receipts. They do not certify microphone quality, speaker sound,
 the 60-second cap on hardware, or a new unplugged physical-gesture check.
+
+## Standby and other-app assistant route
+
+- The installed ROM reports support for long-power while non-interactive. The
+  reversible Assistant profile selects `RecorderAssistActivity` and Android's
+  `LONG_PRESS_POWER_ASSISTANT` behavior; no emergency/SOS setting was changed.
+- Starting with no Rabbit foreground lease, a raw PMIC DOWN from sleeping
+  keyguard launched the recorder through SystemUI. It dismissed the current
+  non-credential keyguard through Android's API, consumed a one-shot passive
+  handoff marker, started the microphone, and saved 3.10 seconds of valid AAC
+  after the original UP. The same route from awake Settings saved 3.12 seconds.
+- Both runs stopped microphone access on release, reconnected ordinary foreground
+  controls, returned to Settings on **Done**, and retained normal short-power
+  sleep. Screenshots verify the custom recording and saved views at 480 × 640.
+  Both runs removed their own audio and restored the initial note-file snapshot.
+- A direct launch from the unprivileged shell UID was rejected with a permission
+  denial for `ACCESS_VOICE_INTERACTION_SERVICE`. SystemUI holds that permission
+  and successfully launched the Activity through the actual power gesture.
+- Native host checks cover initially held/released keys, staggered duplicate
+  drivers, repeat/debounce behavior, terminal isolation, a 65-second observation
+  deadline, exact marker parsing and PING-only observer commands. The observer
+  never grabs either input stream; Android receives its original release.
+- The helper update verified the existing startup hash, retained the prior
+  binary, and used the already-installed init service. Root and product stayed
+  read-only and SELinux stayed enforcing.
+- After a real reboot, the helper binary matched the compiled build, the startup
+  file matched its saved hash, and the helper PID matched init's service PID.
+  The Assistant role/setting journal still matched the device. A new standby
+  hold saved 2.98 seconds of valid AAC, returned to Settings, and preserved short
+  power-button sleep; its audio was removed afterward.
+- During separate intentional short holds, opening Settings or stopping the
+  helper stopped microphone access and left no saved or partial take. Restarting
+  the init service restored the helper. No previous note files changed.
+
+The assistant checks are `scripts/verify_assistant_recorder.py --record-test`
+and its `--from-app` variant. Receipts and screenshots stay in ignored
+`evidence/recorder/assistant-standby/` and `assistant-app/`. PIN-authenticated
+unlock and microphone/speaker quality have not been physically certified.
 
 ## Theme evidence established
 

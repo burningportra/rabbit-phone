@@ -35,6 +35,11 @@ static void release_inputs(int inputs[2]) {
         close(inputs[i]); inputs[i] = -1;
     }
 }
+static void close_observed_inputs(int inputs[2]) {
+    for (int i = 0; i < 2; ++i) if (inputs[i] >= 0) {
+        close(inputs[i]); inputs[i] = -1;
+    }
+}
 
 /* Open relative to the verified directory, then verify the opened inode. */
 static int open_fifo(int directory, const char *name, int mode, uid_t owner) {
@@ -62,6 +67,29 @@ static bool read_lease(int directory, uid_t owner, char nonce[33]) {
     memcpy(nonce, bytes, 32); nonce[32] = '\0';
     return true;
 }
+/* 0: normal lease; 1: newly consumed assistant lease; -1: invalid or used.
+   Renaming leaves a tombstone so daemon restart cannot reinterpret this nonce
+   as a normal grabbing session. The client removes both names on stop. */
+static int consume_assist_marker(int directory, uid_t owner, const char *nonce) {
+    char name[80], used[80];
+    snprintf(name, sizeof(name), "hardware-assist-%s", nonce);
+    snprintf(used, sizeof(used), "hardware-assist-used-%s", nonce);
+    struct stat st;
+    if (!fstatat(directory, used, &st, AT_SYMLINK_NOFOLLOW) || errno != ENOENT) return -1;
+    int fd = openat(directory, name, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return errno == ENOENT ? 0 : -1;
+    char bytes[16];
+    bool valid = !fstat(fd, &st) && S_ISREG(st.st_mode) && st.st_uid == owner &&
+                 (st.st_mode & 07777) == 0600 && st.st_nlink == 1;
+    ssize_t n = valid ? read(fd, bytes, sizeof(bytes)) : -1;
+    struct stat current;
+    valid = n >= 0 && assist_marker_valid(bytes, (size_t)n) &&
+            !fstatat(directory, name, &current, AT_SYMLINK_NOFOLLOW) &&
+            current.st_dev == st.st_dev && current.st_ino == st.st_ino;
+    if (valid) valid = !renameat(directory, name, directory, used);
+    close(fd);
+    return valid ? 1 : -1;
+}
 static bool output_line(int fd, const char *line) {
     size_t n = strlen(line);
     /* Every record fits PIPE_BUF. Backpressure deliberately abandons the grab. */
@@ -78,7 +106,7 @@ static bool key_released(int fd) {
     unsigned char keys[BIT_BYTES(KEY_MAX + 1)] = {0};
     return ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) >= 0 && !bit_set(keys, KEY_POWER);
 }
-static bool acquire_inputs(int inputs[2]) {
+static bool discover_inputs(int inputs[2]) {
     static const char *const names[2] = { "mtk-kpd", "mtk-pmic-keys" };
     /* Event numbers can change across boots; identify the two actual drivers. */
     for (int event = 0; event < 64; ++event) {
@@ -97,6 +125,13 @@ static bool acquire_inputs(int inputs[2]) {
         unsigned char keys[BIT_BYTES(KEY_MAX + 1)] = {0};
         if (ioctl(inputs[i], EVIOCGBIT(EV_KEY, sizeof(keys)), keys) < 0 || !bit_set(keys, KEY_POWER)) goto fail;
     }
+    return true;
+fail:
+    close_observed_inputs(inputs);
+    return false;
+}
+static bool acquire_inputs(int inputs[2]) {
+    if (!discover_inputs(inputs)) return false;
     /* Never consume the release of the wake-up press as a launcher click. */
     if (!key_released(inputs[0]) || !key_released(inputs[1])) goto fail;
     for (int i = 0; i < 2; ++i) if (ioctl(inputs[i], EVIOCGRAB, 1) < 0) goto fail;
@@ -191,6 +226,89 @@ static void await_disconnect(int output) {
         int n = poll(&p, 1, -1);
         if ((n < 0 && errno != EINTR) || (n > 0 && p.revents)) break;
     }
+}
+
+static bool send_assist_edge(int output, enum assist_edge edge, int64_t now) {
+    if (edge == ASSIST_NONE) return true;
+    if (edge == ASSIST_TIMEOUT) return false;
+    char line[64];
+    snprintf(line, sizeof(line), "%s %lld\n", edge == ASSIST_HELD ? "HELD" : "RELEASED", (long long)now);
+    return output_line(output, line);
+}
+
+/* This descriptor pair is never grabbed: Android must receive its original UP. */
+static bool read_observed_inputs(int inputs[2], struct assist_state *state) {
+    for (unsigned i = 0; i < 2; ++i) {
+        struct input_event events[32];
+        for (int batches = 0;; ++batches) {
+            ssize_t bytes = read(inputs[i], events, sizeof(events));
+            if (bytes < 0 && errno == EAGAIN) break;
+            if (bytes <= 0 || bytes % (ssize_t)sizeof(events[0]) || batches >= 8) return false;
+            for (size_t j = 0; j < (size_t)bytes / sizeof(events[0]); ++j) {
+                const struct input_event *event = &events[j];
+                if ((event->type == EV_SYN && event->code == SYN_DROPPED) ||
+                    (event->type == EV_KEY && (event->code != KEY_POWER || event->value < 0 || event->value > 2)) ||
+                    (event->type != EV_SYN && event->type != EV_KEY && event->type != EV_MSC)) return false;
+                if (state && event->type == EV_KEY) {
+                    int64_t now = monotonic_ms(); if (now < 0) return false;
+                    assist_event(state, i, event->value, now);
+                }
+            }
+        }
+    }
+    return true;
+}
+
+static bool observed_down(int fd, bool *down) {
+    unsigned char keys[BIT_BYTES(KEY_MAX + 1)] = {0};
+    if (ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) < 0) return false;
+    *down = bit_set(keys, KEY_POWER);
+    return true;
+}
+
+static bool observe_assistant(int output, int commands, int inputs[2]) {
+    bool down[2];
+    if (!discover_inputs(inputs) || !read_observed_inputs(inputs, NULL) ||
+        !observed_down(inputs[0], &down[0]) || !observed_down(inputs[1], &down[1])) return false;
+    if (!output_line(output, "READY\n")) return false;
+    int64_t now = monotonic_ms(); if (now < 0) return false;
+    struct heartbeat_lease lease;
+    lease_refresh(&lease, now);
+    struct assist_state state;
+    enum assist_edge edge = assist_begin(&state, down[0], down[1], now);
+    if (!send_assist_edge(output, edge, now)) return false;
+    if (edge == ASSIST_RELEASED) return true;
+    size_t command_used = 0;
+    while (!stopping) {
+        struct pollfd p[4] = {
+            { .fd = output, .events = 0 }, { .fd = commands, .events = POLLIN },
+            { .fd = inputs[0], .events = POLLIN }, { .fd = inputs[1], .events = POLLIN }
+        };
+        now = monotonic_ms(); if (now < 0) return false;
+        int64_t deadline = lease.deadline < state.deadline ? lease.deadline : state.deadline;
+        if (state.power.release_at && state.power.release_at < deadline) deadline = state.power.release_at;
+        int ready = poll(p, 4, deadline > now ? (int)(deadline - now) : 0);
+        if (ready < 0) { if (errno == EINTR) continue; return false; }
+        for (int i = 0; i < 4; ++i) if (p[i].revents & (POLLERR | POLLHUP | POLLNVAL)) return false;
+        now = monotonic_ms(); if (now < 0 || lease_expired(&lease, now) || now >= state.deadline) return false;
+        if (p[1].revents & POLLIN) {
+            char bytes[1024];
+            ssize_t n = read(commands, bytes, sizeof(bytes));
+            if (n <= 0 && !(n < 0 && errno == EAGAIN)) return false;
+            for (ssize_t i = 0; i < n; ++i) {
+                int parsed = assist_command_byte(&command_used, bytes[i]);
+                if (parsed < 0) return false;
+                if (parsed > 0) lease_refresh(&lease, now);
+            }
+        }
+        /* Drain both queues before debounce, including staggered driver reports. */
+        if (!read_observed_inputs(inputs, &state)) return false;
+        now = monotonic_ms(); if (now < 0) return false;
+        edge = assist_tick(&state, now);
+        if (!send_assist_edge(output, edge, now)) return false;
+        if (edge == ASSIST_RELEASED) return true;
+    }
+    return false;
 }
 
 static void session(int output, int *commands, int inputs[2]) {
@@ -297,7 +415,18 @@ int main(int argc, char **argv) {
                 snprintf(command_name, sizeof(command_name), "hardware-commands-%s", nonce);
                 output = open_fifo(directory, event_name, O_WRONLY, st.st_uid);
                 if (output >= 0) commands = open_fifo(directory, command_name, O_RDWR, st.st_uid);
-                if (commands >= 0 && acquire_inputs(inputs)) session(output, &commands, inputs);
+                if (commands >= 0) {
+                    int assist = consume_assist_marker(directory, st.st_uid, nonce);
+                    if (assist != 0) {
+                        bool released = assist > 0 && observe_assistant(output, commands, inputs);
+                        close_observed_inputs(inputs);
+                        if (!released) {
+                            close(commands); commands = -1;
+                            (void)output_line(output, "CANCEL\n");
+                        }
+                        await_disconnect(output);
+                    } else if (acquire_inputs(inputs)) session(output, &commands, inputs);
+                }
             }
         }
         release_inputs(inputs);

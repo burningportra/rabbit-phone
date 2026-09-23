@@ -49,4 +49,32 @@ static inline enum edge power_tick(struct power_state *p, int64_t now) {
     }
     return EDGE_NONE;
 }
+
+/* One passive observation of an Android-owned hold; never produces clicks. */
+enum assist_edge { ASSIST_NONE, ASSIST_HELD, ASSIST_RELEASED, ASSIST_TIMEOUT };
+struct assist_state { struct power_state power; int64_t deadline; bool finished; };
+static inline enum assist_edge assist_begin(struct assist_state *s, bool first, bool second, int64_t now) {
+    *s = (struct assist_state){ .power = { .down = {first, second}, .pressed = first || second },
+                               .deadline = now + 65000, .finished = !first && !second };
+    return s->finished ? ASSIST_RELEASED : ASSIST_HELD;
+}
+static inline void assist_event(struct assist_state *s, unsigned device, int value, int64_t now) {
+    if (!s->finished) (void)power_event(&s->power, device, value, now);
+}
+static inline enum assist_edge assist_tick(struct assist_state *s, int64_t now) {
+    if (s->finished) return ASSIST_NONE;
+    if (now >= s->deadline) { s->finished = true; return ASSIST_TIMEOUT; }
+    if (power_tick(&s->power, now) == EDGE_UP) { s->finished = true; return ASSIST_RELEASED; }
+    return ASSIST_NONE;
+}
+static inline bool assist_marker_valid(const char *bytes, size_t size) {
+    return size == 7 && memcmp(bytes, "ASSIST\n", 7) == 0;
+}
+/* Passive sessions have no command authority: accept only an exact PING line. */
+static inline int assist_command_byte(size_t *used, char ch) {
+    static const char ping[] = "PING\n";
+    if (*used >= sizeof(ping) - 1 || ch != ping[*used]) return -1;
+    if (++*used == sizeof(ping) - 1) { *used = 0; return 1; }
+    return 0;
+}
 #endif

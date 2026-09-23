@@ -22,12 +22,17 @@ public final class HardwareButtonClient {
         void onDown(long time);
         void onUp(long time);
         void onDisconnected();
+        default void onAssistantHeld(long time) { }
+        default void onAssistantReleased(long time) { }
     }
 
     public enum Command { PING, SLEEP, SHUTDOWN, MOTOR_FRONT, MOTOR_REAR, MOTOR_PRIVACY }
     private final File directory;
     private File events;
     private File commands;
+    private File assistMarker;
+    private File assistUsedMarker;
+    private boolean assistantMode;
     private String leaseId;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -60,7 +65,18 @@ public final class HardwareButtonClient {
     }
 
     public synchronized void start() {
+        startSession(false);
+    }
+
+    /** Called only by the unlocked, focused, interactive system-assistant Activity.
+     * Observes one Android-owned hold without grabbing it. Stop before changing modes. */
+    public synchronized void startForAssistantHold() {
+        startSession(true);
+    }
+
+    private void startSession(final boolean observingAssistant) {
         if (running) return;
+        assistantMode = observingAssistant;
         try {
             Os.chmod(directory.getAbsolutePath(), 0700);
             leaseId = UUID.randomUUID().toString().replace("-", "");
@@ -69,6 +85,21 @@ public final class HardwareButtonClient {
             ensureFifo(events); ensureFifo(commands);
             input = Os.open(events.getAbsolutePath(),
                     OsConstants.O_RDONLY | OsConstants.O_NONBLOCK | OsConstants.O_NOFOLLOW, 0);
+            if (observingAssistant) {
+                assistMarker = new File(directory, "hardware-assist-" + leaseId);
+                assistUsedMarker = new File(directory, "hardware-assist-used-" + leaseId);
+                FileDescriptor marker = Os.open(assistMarker.getAbsolutePath(),
+                        OsConstants.O_WRONLY | OsConstants.O_CREAT | OsConstants.O_EXCL | OsConstants.O_NOFOLLOW, 0600);
+                try {
+                    StructStat value = Os.fstat(marker);
+                    if (!OsConstants.S_ISREG(value.st_mode) || value.st_uid != android.os.Process.myUid()
+                            || (value.st_mode & 07777) != 0600 || value.st_nlink != 1)
+                        throw new IllegalStateException("Invalid assistant marker");
+                    byte[] bytes = "ASSIST\n".getBytes(StandardCharsets.US_ASCII);
+                    if (Os.write(marker, bytes, 0, bytes.length) != bytes.length)
+                        throw new IllegalStateException("Incomplete assistant marker");
+                } finally { Os.close(marker); }
+            }
             File temporary = new File(directory, "hardware-lease-" + leaseId + ".tmp");
             try (FileOutputStream file = new FileOutputStream(temporary)) {
                 Os.chmod(temporary.getAbsolutePath(), 0600);
@@ -85,7 +116,7 @@ public final class HardwareButtonClient {
         final int session = ++generation;
         final FileDescriptor descriptor = input;
         Thread reader = new Thread(new Runnable() {
-            @Override public void run() { readLoop(descriptor, session); }
+            @Override public void run() { readLoop(descriptor, session, observingAssistant); }
         }, "Rabbit button events");
         reader.setDaemon(true);
         reader.start();
@@ -107,15 +138,21 @@ public final class HardwareButtonClient {
         } catch (Exception ignored) { }
         if (events != null) events.delete();
         if (commands != null) commands.delete();
+        if (assistMarker != null) assistMarker.delete();
+        if (assistUsedMarker != null) assistUsedMarker.delete();
         leaseId = null;
         events = null;
         commands = null;
+        assistMarker = null;
+        assistUsedMarker = null;
+        assistantMode = false;
     }
 
     public boolean isReady() { return ready && running; }
 
-    public boolean send(Command command) {
+    public synchronized boolean send(Command command) {
         if (!running || !ready) return false;
+        if (assistantMode && command != Command.PING) return false;
         FileDescriptor output = null;
         try {
             output = Os.open(commands.getAbsolutePath(),
@@ -126,10 +163,11 @@ public final class HardwareButtonClient {
         finally { if (output != null) try { Os.close(output); } catch (Exception ignored) { } }
     }
 
-    private void readLoop(FileDescriptor fd, final int session) {
+    private void readLoop(FileDescriptor fd, final int session, final boolean observingAssistant) {
         byte[] bytes = new byte[256];
         StringBuilder pending = new StringBuilder();
         boolean connected = false;
+        final boolean[] assistantEdges = {false, false}; // HELD and terminal RELEASED, UI thread only.
         StructPollfd poll = new StructPollfd();
         poll.fd = fd;
         poll.events = (short) (OsConstants.POLLIN | OsConstants.POLLHUP | OsConstants.POLLERR);
@@ -158,11 +196,29 @@ public final class HardwareButtonClient {
                     main.post(new Runnable() {
                         @Override public void run() {
                             if (!running || generation != session) return;
-                            if (line.equals("READY")) {
+                            if (observingAssistant && line.equals("CANCEL")) {
+                                stop(); listener.onDisconnected();
+                            } else if (line.equals("READY")) {
+                                if (observingAssistant && ready) { stop(); listener.onDisconnected(); return; }
                                 ready = true;
                                 main.removeCallbacks(heartbeat);
                                 main.post(heartbeat);
                                 listener.onReady();
+                            } else if (observingAssistant) {
+                                try {
+                                    if (!ready || assistantEdges[1]) throw new IllegalStateException("Unexpected assistant event");
+                                    boolean held = line.startsWith("HELD ");
+                                    boolean released = line.startsWith("RELEASED ");
+                                    if ((!held && !released) || (held && assistantEdges[0]))
+                                        throw new IllegalStateException("Invalid assistant event");
+                                    String timestamp = line.substring(held ? 5 : 9);
+                                    if (!timestamp.matches("[0-9]+")) throw new IllegalStateException("Invalid assistant time");
+                                    long time = Long.parseLong(timestamp);
+                                    if (held) { assistantEdges[0] = true; listener.onAssistantHeld(time); }
+                                    else { assistantEdges[1] = true; listener.onAssistantReleased(time); }
+                                } catch (IllegalArgumentException | IllegalStateException error) {
+                                    stop(); listener.onDisconnected();
+                                }
                             } else if (ready && line.startsWith("DOWN ")) {
                                 try { listener.onDown(Long.parseLong(line.substring(5))); }
                                 catch (NumberFormatException ignored) { }

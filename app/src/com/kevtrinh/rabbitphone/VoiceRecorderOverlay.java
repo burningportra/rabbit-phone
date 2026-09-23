@@ -33,6 +33,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     public interface Host {
         void onRecorderActiveChanged(boolean active);
         void onRecorderMessage(String message);
+        default void onRecorderClosed() { }
     }
 
     private static final int MICROPHONE_PERMISSION_REQUEST = 4071;
@@ -81,6 +82,26 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     public VoiceNotes voiceNotes() { return notes; }
 
     public boolean isVisible() { return root != null; }
+
+    /** Opens without microphone access while an assistant hold is being handed off. */
+    public void showReady() {
+        if (notes.isRecording()) return;
+        attach();
+        beginPage();
+        if (page == null) return;
+        page.addView(text("Voice recorder", 32, WHITE, Typeface.NORMAL),
+                new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView hint = text("Hold the side button to record", 29, WHITE, Typeface.NORMAL);
+        hint.setGravity(Gravity.CENTER_VERTICAL);
+        page.addView(hint, new LinearLayout.LayoutParams(-1, 0, 1f));
+        addAction("Notes", false, new Runnable() {
+            @Override public void run() { showLibrary(); }
+        });
+        addAction("Done", false, new Runnable() {
+            @Override public void run() { closeFromUser(); }
+        });
+        applySelection(false);
+    }
 
     /** Begins from the deliberate 450 ms hardware hold. Permission never resumes recording. */
     public boolean beginHold() {
@@ -256,7 +277,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         addAction("Cancel", false, new Runnable() {
             @Override public void run() {
                 notes.cancel();
-                dismiss();
+                closeFromUser();
             }
         });
         addAction("Stop & save", true, new Runnable() {
@@ -293,7 +314,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             @Override public void run() { showLibrary(); }
         });
         addAction("Done", false, new Runnable() {
-            @Override public void run() { dismiss(); }
+            @Override public void run() { closeFromUser(); }
         });
         applySelection(false);
     }
@@ -312,7 +333,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             @Override public void run() { showLibrary(); }
         });
         addAction("Done", true, new Runnable() {
-            @Override public void run() { dismiss(); }
+            @Override public void run() { closeFromUser(); }
         });
         selectedAction = Math.max(0, actions.size() - 1);
         applySelection(false);
@@ -359,7 +380,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         actionScroll.addView(rows, new ScrollView.LayoutParams(-1, -2));
         page.addView(actionScroll, new LinearLayout.LayoutParams(-1, 0, 1f));
         addAction("Done", false, new Runnable() {
-            @Override public void run() { dismiss(); }
+            @Override public void run() { closeFromUser(); }
         });
         if (preserveSelection) {
             selectedAction = Math.max(0, Math.min(actions.size() - 1, previousSelection));
@@ -453,6 +474,11 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
                 }
             });
         }
+    }
+
+    private void closeFromUser() {
+        dismiss();
+        host.onRecorderClosed();
     }
 
     private void dismiss() {

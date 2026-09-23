@@ -54,6 +54,40 @@ before UP. EV_KEY repeat value 2 is ignored. The app owns click, hold, double
 click, wake UI, and haptic policy. It groups using physical monotonic timestamps;
 stale taps and delayed completed holds cannot become photos or false shutdowns.
 
+### Android assistant handoff
+
+`RecorderAssistActivity` can be launched by Android's configured long-power
+Assistant shortcut. It requires the SystemUI-held
+`ACCESS_VOICE_INTERACTION_SERVICE` permission and uses normal keyguard dismissal.
+Only after it is focused, interactive and unlocked does
+`HardwareButtonClient.startForAssistantHold()` create a nonce-bound
+`hardware-assist-<nonce>` marker before publishing the normal lease. The marker
+is an app-owned mode-0600 regular file, one link, with exactly `ASSIST\n` as its
+contents. The helper validates and atomically renames it to
+`hardware-assist-used-<nonce>`; that tombstone prevents rearming after helper
+restart. The client removes both names on stop.
+
+This one-shot session opens both power input devices **without EVIOCGRAB**.
+It reads their live key state, sends `READY`, then `HELD <monotonic-ms>` if the
+original button is still held. Both drivers releasing plus the 25 ms debounce
+produces `RELEASED <monotonic-ms>`. An already released button produces RELEASED
+without HELD and cannot start a recording. The original UP also reaches Android,
+which still owns that press. After RELEASED the input descriptors close; the
+Activity closes the observer session and starts a fresh ordinary foreground
+session for future wheel/button interactions.
+
+Passive sessions accept only exact `PING\n` commands. Missing heartbeat, client
+death, invalid/lost input, stale/invalid markers, or a 65-second deadline cancel
+the session. `CANCEL` is accepted before READY and stops the client. No observer
+remains active behind another app or keyguard, and no marker changes the normal
+requirement that both buttons be released before an ordinary grab.
+
+The supported system route is documented in Android 16's
+[power policy](https://android.googlesource.com/platform/frameworks/base/+/android16-release/services/core/java/com/android/server/policy/PhoneWindowManager.java)
+and [SystemUI assistant dispatcher](https://android.googlesource.com/platform/frameworks/base/+/android16-release/packages/SystemUI/src/com/android/systemui/assist/AssistManager.java).
+The app uses [requestDismissKeyguard](https://developer.android.com/reference/android/app/KeyguardManager#requestDismissKeyguard(android.app.Activity,%20android.app.KeyguardManager.KeyguardDismissCallback))
+without disabling credential checks.
+
 The daemon accepts only these exact newline-terminated command lines:
 
 | Command | Fixed action |

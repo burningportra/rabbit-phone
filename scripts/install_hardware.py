@@ -143,6 +143,72 @@ def remove():
     print('Removed the task-owned input helper and boot service. Power uses Android defaults.')
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('action', choices=['install', 'remove'])
-{'install': install, 'remove': remove}[parser.parse_args().action]()
+def update():
+    """Replace only the already-installed helper; never remount or rewrite init."""
+    global SERIAL
+    SERIAL = select_r1(mutation=True)
+    if adb('shell', 'id', '-u') != '0':
+        raise RuntimeError('Updating the tested helper requires root ADB')
+    receipt = ROOT / 'evidence/hardware-install.json'
+    record = json.loads(receipt.read_text())
+    require_evidence_serial(record, SERIAL, receipt)
+    if record['binary'] != BIN or record['startup_file'] != RC:
+        raise RuntimeError('Unexpected recorded helper installation')
+    startup = subprocess.check_output(['adb', '-s', SERIAL, 'exec-out', 'cat', RC])
+    if hashlib.sha256(startup).hexdigest() != record['installed_startup_sha256']:
+        raise RuntimeError('Startup file changed outside the recorded installation')
+    previous = subprocess.check_output(['adb', '-s', SERIAL, 'exec-out', 'cat', BIN])
+    previous_sha = hashlib.sha256(previous).hexdigest()
+    if previous_sha != record['sha256']:
+        raise RuntimeError('Installed helper differs from the recorded binary')
+    source = ROOT / 'hardware/rabbit-hardware'
+    expected = hashlib.sha256(source.read_bytes()).hexdigest()
+    if expected == previous_sha:
+        print('The exact helper build is already installed.')
+        return
+    backups = ROOT / 'evidence/hardware-updates'
+    backups.mkdir(parents=True, exist_ok=True)
+    backup = backups / (previous_sha + '.bin')
+    if backup.exists() and backup.read_bytes() != previous:
+        raise RuntimeError('Existing helper rollback artifact does not match')
+    if not backup.exists():
+        backup.write_bytes(previous)
+    stop_helper()
+    try:
+        adb('push', str(source), BIN + '.new')
+        adb('shell', 'chmod', '0755', BIN + '.new')
+        adb('shell', 'chown', 'root:root', BIN + '.new')
+        if adb('shell', 'sha256sum', BIN + '.new').split()[0] != expected:
+            raise RuntimeError('Staged helper hash mismatch')
+        adb('shell', 'mv', BIN + '.new', BIN)
+        adb('shell', 'restorecon', BIN)
+        adb('shell', 'setprop', 'ctl.start', SERVICE)
+        time.sleep(.5)
+        if adb('shell', 'getprop', 'init.svc.' + SERVICE) != 'running':
+            raise RuntimeError('Updated helper did not start through init')
+        if subprocess.check_output(['adb', '-s', SERIAL, 'exec-out', 'cat', RC]) != startup:
+            raise RuntimeError('Startup file changed while updating the helper')
+    except Exception:
+        stop_helper()
+        adb('push', str(backup), BIN + '.rollback')
+        adb('shell', 'chmod', '0755', BIN + '.rollback')
+        adb('shell', 'chown', 'root:root', BIN + '.rollback')
+        if adb('shell', 'sha256sum', BIN + '.rollback').split()[0] != previous_sha:
+            raise RuntimeError('Rollback helper hash mismatch; retained the local backup')
+        adb('shell', 'mv', BIN + '.rollback', BIN)
+        adb('shell', 'restorecon', BIN)
+        adb('shell', 'setprop', 'ctl.start', SERVICE)
+        raise
+    record['sha256'] = expected
+    record['previous_binary_backup'] = str(backup.relative_to(ROOT))
+    record['boot_startup_verified'] = False
+    temporary = receipt.with_suffix('.tmp')
+    temporary.write_text(json.dumps(record, indent=2) + '\n')
+    temporary.replace(receipt)
+    print('Updated the helper through its existing init service; startup file unchanged.')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['install', 'update', 'remove'])
+    {'install': install, 'update': update, 'remove': remove}[parser.parse_args().action]()

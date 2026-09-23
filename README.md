@@ -60,11 +60,17 @@ retain their own controls. The five-press action refreshes this local interface;
 it does not reconnect to Rabbit's cloud. This project does not supply Rabbit's
 cloud assistant or services.
 
-**Hold-to-record requires unlocked, focused Rabbit Home or its built-in Camera.**
-Wake and unlock first, fully release the wake press, then hold again. A hold from
-the lock screen, notification shade or another app still belongs to Android and
-may open its power/emergency menu. The helper intentionally releases the power
-button there; it does not record across the lock screen.
+The optional Assistant profile also opens the recorder from standby or another
+app with one continuous side-button hold. Android handles the long press and
+normal unlock; recording starts only once the recorder is visible and unlocked,
+then releasing the button saves the note. With a credential lock, Android still
+requires authentication. Releasing before the recorder opens leaves it ready for
+a fresh hold. **Done** returns to the previous app.
+
+This entry point uses Android's Assistant role and long-press setting. The helper
+observes that original release without grabbing it, so Android receives the full
+press. Normal foreground controls resume afterward. It does not keep a background
+power-button grab, disable keyguard, or change Emergency SOS settings.
 
 ## Build and install
 
@@ -92,11 +98,18 @@ Android button-remapping app.
 python3 scripts/device_profile.py backup
 python3 scripts/install_app.py
 python3 scripts/install_hardware.py install
+python3 scripts/assistant_profile.py apply
 python3 scripts/verify_reboot.py
 ```
 
 The app installer grants Camera and Microphone permission for the corresponding
 user-initiated features and sets **Rabbit Phone** as the default Home app.
+The Assistant profile selects the permission-protected custom recorder as Android's
+assistant and changes long-press power from the power menu to that entry point.
+It saves the original role and settings in a device-bound recovery journal. For
+an existing helper installation, `python3 scripts/install_hardware.py update`
+updates only its binary after checking the saved startup hash; it preserves the
+previous binary and does not remount or rewrite system files.
 The profile script applies dark mode, focused Quick Settings, the supported
 camera shortcut, and the user's New York time zone; review that profile before
 using it on another device.
@@ -118,6 +131,7 @@ or kernel is modified. Backups in `evidence/` are local, ignored, and required f
 rollback; retain them independently of Git.
 
 ```sh
+python3 scripts/assistant_profile.py restore
 python3 scripts/install_hardware.py remove
 python3 scripts/device_profile.py restore
 ```
@@ -152,6 +166,8 @@ recording and a second canceled take through the real PMIC input driver:
 ```sh
 python3 scripts/verify_recorder.py --record-test
 python3 scripts/verify_recorder.py --record-test --camera
+python3 scripts/verify_assistant_recorder.py --record-test
+python3 scripts/verify_assistant_recorder.py --record-test --from-app
 ```
 
 Announce and authorize this media test before running it. It checks the active
@@ -160,6 +176,12 @@ cancellation on focus loss and preservation of existing notes. It plays only its
 own test note and removes it afterward, without transcribing audio. Screenshots
 and the verification receipt stay in ignored
 `evidence/recorder/`.
+
+The assistant check starts behind sleeping keyguard or in Settings, sends the
+actual PMIC driver's held press, and requires Android itself to launch the
+recorder. It verifies release-to-save, return to the previous app, ordinary
+short-power sleep, and removal of its test audio. It never directly launches the
+recorder or dismisses keyguard during the tested hold.
 
 - [Rabbit's documented controls](https://www.rabbit.tech/support/article/use-rabbit-r1)
 - [CipherOS R1](https://cipheros.org.in/devices/r1)
