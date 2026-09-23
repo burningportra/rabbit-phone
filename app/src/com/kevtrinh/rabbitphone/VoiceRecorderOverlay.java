@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
@@ -47,6 +48,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     private final Activity activity;
     private final Host host;
     private final VoiceNotes notes;
+    private final AudioManager audio;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ArrayList<View> actionViews = new ArrayList<View>();
     private final ArrayList<Runnable> actions = new ArrayList<Runnable>();
@@ -59,16 +61,26 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             main.postDelayed(this, 50L);
         }
     };
+    private final Runnable volumeTick = new Runnable() {
+        @Override public void run() {
+            if (root == null || volumeLabel == null) return;
+            updateVolumeLabel();
+            main.postDelayed(this, 500L);
+        }
+    };
 
     private FrameLayout root;
     private LinearLayout page;
     private TextView timer;
+    private TextView volumeLabel;
+    private String volumeError;
     private WaveformView waveform;
     private ScrollView actionScroll;
     private File savedFile;
     private long savedDuration;
     private int selectedAction;
     private boolean ownsKeepScreenOn;
+    private boolean showingSaved;
 
     public VoiceRecorderOverlay(Activity activity, Host host) {
         if (activity == null || host == null) {
@@ -77,6 +89,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         this.activity = activity;
         this.host = host;
         notes = new VoiceNotes(activity, this);
+        audio = activity.getSystemService(AudioManager.class);
     }
 
     public VoiceNotes voiceNotes() { return notes; }
@@ -166,6 +179,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     /** Used for pause, focus loss, helper disconnect, lock, and destruction. */
     public void abortAndDismiss() {
         main.removeCallbacks(meterTick);
+        main.removeCallbacks(volumeTick);
         notes.cancel();
         notes.stopPlayback();
         dismiss();
@@ -239,6 +253,10 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     private void beginPage() {
         if (root == null) return;
+        showingSaved = false;
+        main.removeCallbacks(volumeTick);
+        volumeLabel = null;
+        volumeError = null;
         root.removeAllViews();
         actionViews.clear();
         actions.clear();
@@ -287,6 +305,8 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
     }
 
     private void renderSaved(String message) {
+        boolean preserveSelection = showingSaved;
+        int previousSelection = selectedAction;
         beginPage();
         if (page == null) return;
         TextView eyebrow = text("SAVED", 13, ORANGE, Typeface.NORMAL);
@@ -316,6 +336,9 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         addAction("Done", false, new Runnable() {
             @Override public void run() { closeFromUser(); }
         });
+        addVolumeControls();
+        showingSaved = true;
+        if (preserveSelection) selectedAction = Math.max(0, Math.min(actions.size() - 1, previousSelection));
         applySelection(false);
     }
 
@@ -382,10 +405,74 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
         addAction("Done", false, new Runnable() {
             @Override public void run() { closeFromUser(); }
         });
+        addVolumeControls();
         if (preserveSelection) {
             selectedAction = Math.max(0, Math.min(actions.size() - 1, previousSelection));
         }
         applySelection(false);
+    }
+
+    /** In-window controls: opening Android's volume panel would interrupt playback. */
+    private void addVolumeControls() {
+        LinearLayout row = new LinearLayout(activity);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+        params.topMargin = dp(8);
+        page.addView(row, params);
+        addVolumeButton(row, "−", "Lower media volume", AudioManager.ADJUST_LOWER);
+        volumeLabel = text("", 15, MUTED, Typeface.NORMAL);
+        volumeLabel.setGravity(Gravity.CENTER);
+        volumeLabel.setFontFeatureSettings("tnum");
+        row.addView(volumeLabel, new LinearLayout.LayoutParams(0, -1, 1f));
+        addVolumeButton(row, "+", "Raise media volume", AudioManager.ADJUST_RAISE);
+        main.removeCallbacks(volumeTick);
+        main.post(volumeTick);
+    }
+
+    private void addVolumeButton(LinearLayout row, String label, String description,
+            final int direction) {
+        Button button = new Button(activity);
+        button.setText(label);
+        button.setContentDescription(description);
+        button.setTextSize(24);
+        button.setTypeface(RabbitTypography.regular(activity));
+        button.setPadding(0, 0, 0, 0);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        row.addView(button, new LinearLayout.LayoutParams(dp(54), -1));
+        registerAction(button, new Runnable() {
+            @Override public void run() {
+                volumeError = null;
+                try {
+                    if (audio == null || audio.isVolumeFixed()) {
+                        volumeError = "Use output volume controls";
+                    } else {
+                        // Explicit user action only. Play never raises or unmutes volume.
+                        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0);
+                    }
+                } catch (SecurityException unavailable) {
+                    volumeError = "Volume change unavailable";
+                }
+                updateVolumeLabel();
+            }
+        });
+    }
+
+    private void updateVolumeLabel() {
+        if (volumeLabel == null) return;
+        String label;
+        boolean muted = false;
+        if (volumeError != null) label = volumeError;
+        else if (audio == null) label = "Media volume unavailable";
+        else {
+            int current = audio.getStreamVolume(AudioManager.STREAM_MUSIC);
+            int maximum = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            muted = current == 0 || audio.isStreamMute(AudioManager.STREAM_MUSIC);
+            label = muted ? "Media volume off" : "Media volume "
+                    + Math.round(current * 100f / Math.max(1, maximum)) + "%";
+        }
+        if (!label.contentEquals(volumeLabel.getText())) volumeLabel.setText(label);
+        volumeLabel.setTextColor(muted || volumeError != null ? ORANGE : MUTED);
     }
 
     private void addLibraryAction(LinearLayout parent, String label, String detail,
@@ -468,7 +555,8 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             final ScrollView scroll = actionScroll;
             scroll.post(new Runnable() {
                 @Override public void run() {
-                    if (actionScroll == scroll && selected.isAttachedToWindow()) {
+                    if (actionScroll == scroll && selected.isAttachedToWindow()
+                            && selected.getParent() == scroll.getChildAt(0)) {
                         scroll.smoothScrollTo(0, Math.max(0, selected.getTop() - dp(8)));
                     }
                 }
@@ -483,6 +571,7 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
 
     private void dismiss() {
         main.removeCallbacks(meterTick);
+        main.removeCallbacks(volumeTick);
         notes.stopPlayback();
         clearOwnedScreenFlag();
         if (root != null) {
@@ -490,10 +579,13 @@ public final class VoiceRecorderOverlay implements VoiceNotes.Listener {
             if (parent != null) parent.removeView(root);
         }
         root = null;
+        showingSaved = false;
         page = null;
         actionViews.clear();
         actions.clear();
         timer = null;
+        volumeLabel = null;
+        volumeError = null;
         waveform = null;
         actionScroll = null;
         savedFile = null;

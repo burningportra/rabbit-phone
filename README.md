@@ -54,6 +54,10 @@ moves between actions with haptics and a short side-button press selects one.
 Saved notes are also available under **All apps → Utilities → Voice notes**.
 Playback starts only when selected. Leaving the app, locking it or losing the
 hardware connection stops playback and discards an unfinished recording.
+Saved notes and the library include **−/+ media-volume controls** and a current
+level. Select them with the wheel and side button, or tap them. A zero or muted
+level says **Media volume off**; Play respects that setting. Adjusting the volume
+stays inside the recorder, so it does not open a system panel or stop playback.
 
 Normal Android wake/lock behavior remains available. Standalone Android apps
 retain their own controls. The five-press action refreshes this local interface;
@@ -182,6 +186,19 @@ actual PMIC driver's held press, and requires Android itself to launch the
 recorder. It verifies release-to-save, return to the previous app, ordinary
 short-power sleep, and removal of its test audio. It never directly launches the
 recorder or dismisses keyguard during the tested hold.
+
+To diagnose playback without exporting existing recordings:
+
+```sh
+python3 scripts/probe_note_signal.py --analyze-notes
+python3 scripts/verify_playback.py --play-note
+```
+
+The signal probe decodes on-device and returns only sample counts and level
+statistics. The playback check deliberately plays an existing note on the R1,
+checks mute indication, touch and hardware volume controls, speaker routing and
+teardown, and restores the starting volume. It preserves all notes and writes
+only local, ignored receipts/screenshots under `evidence/playback/`.
 
 - [Rabbit's documented controls](https://www.rabbit.tech/support/article/use-rabbit-r1)
 - [CipherOS R1](https://cipheros.org.in/devices/r1)

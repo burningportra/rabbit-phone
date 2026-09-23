@@ -5,9 +5,9 @@ stock v0.8.293 kernel, portrait 480 × 640 at 190 dpi.
 
 ## Evidence established
 
-- Native APK build and v2/v3 signature verification pass. The current 0.4.1
-  build is 115,091 bytes with SHA-256
-  `38ed5511d4e1482dc777b85b2364d0497d824148deb0ed31dd9fb64e7cb268e0`.
+- Native APK build and v2/v3 signature verification pass. The current 0.4.2
+  build is 119,187 bytes with SHA-256
+  `44885b200d026a1f0cf920fefb07f78c7c350efe1446b32bae8e7136e29d66cb`.
 - Fifteen gesture-state cases pass, including duplicate edges, hold vs click,
   single/double/five/eight presses, cancellation, delayed holds and delayed
   separated clicks. Tests do not invoke actual shutdown or record media.
@@ -99,6 +99,31 @@ The assistant checks are `scripts/verify_assistant_recorder.py --record-test`
 and its `--from-app` variant. Receipts and screenshots stay in ignored
 `evidence/recorder/assistant-standby/` and `assistant-app/`. PIN-authenticated
 unlock and microphone/speaker quality have not been physically certified.
+
+## Playback volume evidence
+
+- The silent-playback report was traced to `STREAM_MUSIC` on the speaker at
+  0/15. Android showed the app's media players starting but muted by stream and
+  port volume. On-device decoding confirmed that existing notes contained
+  nonzero PCM; no existing audio was exported or transcribed.
+- Media volume was restored to 5/15. A saved note then produced an active,
+  unmuted player routed to the speaker. AudioFlinger reported an active app track
+  with finite gain and `PortMuted=false`, rather than the previous zero gain.
+  This verifies Android's output path; subjective loudness was not measured.
+- Saved and library views now show the current media level and explicit off
+  state, with −/+ controls. Device checks verified one-step touch adjustments,
+  actual wheel selection plus side-button activation, unchanged hardware lease,
+  and that Play does not secretly raise zero volume.
+- A short deliberate test take verified the Saved view controls and that the
+  volume selection survives playback completion. The test take was deleted;
+  hashes of all pre-existing notes remained unchanged. Exiting stopped playback.
+- Build/signature checks, native sanitizer cases, all 15 gesture cases and
+  all 68 Python cases passed. No helper, assistant profile or system font was
+  changed for this fix; microphone access is idle after verification.
+
+Reproducible checks are `scripts/probe_note_signal.py --analyze-notes` and
+`scripts/verify_playback.py --play-note`. Receipts, audio-service snapshots and
+UI captures remain local under ignored `evidence/playback/`.
 
 ## Theme evidence established
 
