@@ -243,6 +243,27 @@ controls fit without clipping. The installed APK matched the signed build hash;
 all ten existing notes, media volume and display settings were preserved. The
 visual pass opened existing media details without playback or capture.
 
+## Native Settings in 0.12
+
+The signed build and existing native, gesture, card/timer-state and 68 Python
+host tests passed. Independent review checked page ownership, lifecycle gates,
+preference writes and stale control identities. Editor controls are recreated
+for each entry with immutable page/generation ownership, so a discarded
+brightness control cannot later adjust media volume.
+
+All 25 assertions in `scripts/verify_settings.py --device-test` passed on the R1.
+They cover both Settings entry paths, actual Android brightness/media/sleep/sound
+preferences, child/root Back, same-child Quick Settings return, hardware release
+while an Android panel is open, one-Back restoration from Wi-Fi, and app-restart
+persistence. The check restored all changed preferences and volume; ten notes
+and timer state remained unchanged, with no microphone or playback activity.
+Screenshots confirmed the full-screen root, value editors, Network and device
+information. The root screenshot is public; device-specific evidence is ignored.
+All 22 general navigation assertions also passed, including the Settings gear,
+bottom-edge Home, recorder routing, modal accessibility and unchanged volume.
+The final device pass checked first-row wheel focus, the readable Device info
+page and its Back chain, unchanged preferences/notes, and the installed APK hash.
+
 ## Important boundaries
 
 - Runtime haptics, microphone quality and physical feel are separate from a

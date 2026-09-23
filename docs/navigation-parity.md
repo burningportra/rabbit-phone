@@ -219,6 +219,41 @@ prompt children to AUTO hid the static caption. The implementation preserves the
 framework-owned layout object and restores each view's original accessibility
 flag; the same device checks now cover both paths.
 
+## Native Settings in v0.12
+
+Rabbit's [Settings guide](https://www.rabbit.tech/support/article/rabbit-r1-settings)
+documents Display, Sound, Bluetooth, Network, Magic and Device, with entry through
+either the Settings card or the Quick Settings gear. The native root follows
+those documented categories. The current guide is not version-tagged as rabbitOS
+2, and the launch demo does not show its Settings root. The black/orange,
+borderless treatment follows the other native pages and the owner's full-screen
+request; exact root order and visual layout remain unverified against rabbitOS 2.
+
+Display offers actual Android brightness and auto-sleep. Sound offers actual
+media volume and system sound effects. Read-only entry preserves Android's
+current values; the wheel changes a value only inside its explicit editor, and
+the side button finishes editing. Child Back restores its parent and selected
+row; root Back follows the full-card exit to Home. Quick Settings dismissal or
+gear re-entry preserves the current child. Wi-Fi, cellular, Bluetooth, time and
+language use the Android panels as children of the current task, so Back returns
+to the native Settings page. These remain Android visuals, not Rabbit replicas.
+
+Magic offers the existing local Rabbit theme only. Device info identifies the
+Android/app versions without device identifiers. Rabbit's cloud Magic controls,
+firmware OTA, compliance, factory reset and power menu are not emulated here.
+The six auto-sleep choices and value-editor arrangement are local designs rather
+than observed stock UI. No background hardware owner or media capture is added.
+
+`scripts/verify_settings.py --device-test` passed 25 device assertions, including
+raw-wheel brightness/media adjustments, explicit auto-sleep and sound-effect
+writes, modal accessibility, same-child gear re-entry, a single Android Wi-Fi
+Back returning to Network, root Back, card entry and restart persistence. The
+test journal records intended changes before input; cleanup first releases the
+editor, then restores only preferences still matching those test values. All
+four system preferences, media volume, ten notes and timer state were preserved.
+The microphone stayed idle throughout. The public Settings image contains only
+the root menu; raw receipts remain ignored.
+
 ## Remaining differences from Rabbit firmware
 
 This is a working reference-based navigation implementation, not a verified

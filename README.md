@@ -46,6 +46,12 @@ for the owner's device.
   and device reboot. Android delivers the completion alert using the existing
   alarm sound and channel preferences, without changing media volume. One timer
   runs at a time; starting another replaces it.
+- Settings has native Display, Sound, Network, Magic and Device pages, plus a
+  Bluetooth shortcut. Wheel and side-button controls adjust brightness and media
+  volume, select auto-sleep, and toggle system sound effects. Android owns the
+  saved values; opening a page never replaces them with app defaults. Network,
+  language and time panels return to their native parent on Back. Magic currently
+  exposes the existing local Rabbit theme, not Rabbit cloud features.
 - App list remains available; no packages removed or disabled.
 - **apps → Utilities → Rabbit theme** previews and explicitly applies or
   removes the matching Home-and-lock wallpaper. Android's real keyguard,
@@ -192,6 +198,7 @@ python3 scripts/verify_card_flows.py --device-test --interruptions
 python3 scripts/verify_active_cards.py --device-test
 python3 scripts/verify_navigation_camera.py --device-test
 python3 scripts/verify_quick_settings.py --device-test
+python3 scripts/verify_settings.py --device-test
 python3 scripts/verify_timer.py --device-test --reboot
 python3 scripts/verify_timer.py --device-test --access-recovery
 python3 scripts/verify_recorder_navigation.py --device-test
@@ -203,7 +210,10 @@ The card-flow check exercises Translator's language picker and the Translator,
 Timer and Recorder Back paths. Its optional interruption checks temporarily slow
 or disable Android animations, then restore the original setting. The camera check opens its preview without taking photos. The quick-settings
 check temporarily changes brightness and volume, verifies restart persistence,
-and restores its own changes. The general navigation checks do not record audio or play personal notes. The full timer check sounds
+and restores its own changes. The native Settings check also exercises child Back
+paths, overlay re-entry, Android panel return, sleep and sound-effect preferences;
+it journals its own changes and restores them only while they still match the
+test's values. The general navigation checks do not record audio or play personal notes. The full timer check sounds
 one short completion alert and, with `--reboot`, briefly restarts the R1; it refuses
 to overwrite an existing active timer. `--access-recovery` verifies wheel/button
 selection and alarm-access loss without sounding an alert. Results and
@@ -255,6 +265,8 @@ three-second missing UI heartbeat. Android's original power behavior is then
 available. The app reconnects while foreground after the helper returns.
 
 ## Verification and references
+
+![Native Settings in version 0.12](docs/settings.png)
 
 Version 0.11 expands the launcher to use the R1's 480×640 display: 432 px cards
 and feature pages, 24 px side margins, larger Home artwork and clock, and a

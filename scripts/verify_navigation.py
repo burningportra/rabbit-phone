@@ -92,7 +92,7 @@ def main():
             time.sleep(.08)
         click_power()
         ui = screen('settings')
-        receipt('raw_side_selects_quick_settings_shortcut', 'android settings' in ui)
+        receipt('raw_side_selects_quick_settings_shortcut', 'Rabbit settings' in ui)
         swipe(240, 622, 240, 395)
         receipt('settings_bottom_edge_returns_home', 'Rabbit home.' in screen('settings-home'))
         wheel_down(device)

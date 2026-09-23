@@ -578,7 +578,8 @@ public final class HomeActivity extends Activity {
     private void installPage(View content, boolean home) {
         if (cardTransition != null && !cardTransition.isRevealing()) cancelCardTransition(false);
         controlsHandler.removeCallbacks(timerTick);
-        if (page != Page.TIMER_SETUP && page != Page.TRANSLATOR && page != Page.GALLERY) setHardwarePage(null);
+        if (page != Page.TIMER_SETUP && page != Page.TRANSLATOR && page != Page.GALLERY
+                && page != Page.SETTINGS) setHardwarePage(null);
         releaseCameraScreen();
         navigationSurface = new NavigationSurface(this); navigationSurface.setHome(home);
         navigationSurface.setListener(new NavigationSurface.Listener() {
@@ -913,31 +914,53 @@ public final class HomeActivity extends Activity {
     }
 
     private void showSettings() {
+        if (page == Page.SETTINGS && hardwarePage instanceof SettingsView) {
+            updateSurfaceMode();
+            return;
+        }
         activeFeatureId = "settings";
         page = Page.SETTINGS;
-        ArrayList<Entry> entries = new ArrayList<>();
-        entries.add(new Entry("display & volume", "Brightness and media volume", new Runnable() {
-            @Override public void run() { showQuickSettings(); }
-        }));
-        entries.add(new Entry("wi-fi", "Network connections", new Runnable() {
-            @Override public void run() {
-                launchIntent(new Intent(Settings.ACTION_WIFI_SETTINGS), "Wi-Fi settings unavailable");
+        homeVisual = null; cardDeck = null; scrollView = null;
+        visibleEntries.clear(); selectableViews.clear();
+        clockView = dateView = statusView = null;
+        FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
+        setHardwarePage(new SettingsView(this, new SettingsView.Host() {
+            @Override public void onWifi() {
+                launchSettingsChild(new Intent(Settings.ACTION_WIFI_SETTINGS), "Wi-Fi settings unavailable");
             }
-        }));
-        entries.add(new Entry("bluetooth", "Connected devices", new Runnable() {
-            @Override public void run() {
-                launchIntent(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS), "Bluetooth settings unavailable");
+            @Override public void onBluetooth() {
+                launchSettingsChild(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS), "Bluetooth settings unavailable");
             }
-        }));
-        entries.add(new Entry("rabbit theme", "Home and lock screen", new Runnable() {
-            @Override public void run() {
-                launchIntent(new Intent(HomeActivity.this, ThemeActivity.class), "Theme unavailable");
+            @Override public void onCellular() {
+                launchSettingsChild(new Intent(Settings.ACTION_NETWORK_OPERATOR_SETTINGS), "Cellular settings unavailable");
             }
+            @Override public void onTheme() {
+                launchSettingsChild(new Intent(HomeActivity.this, ThemeActivity.class), "Theme unavailable");
+            }
+            @Override public void onDeviceSettings() {
+                launchSettingsChild(new Intent(Settings.ACTION_SETTINGS), "Settings unavailable");
+            }
+            @Override public void onTimeSettings() {
+                launchSettingsChild(new Intent(Settings.ACTION_DATE_SETTINGS), "Time settings unavailable");
+            }
+            @Override public void onLanguageSettings() {
+                launchSettingsChild(new Intent(Settings.ACTION_LOCALE_SETTINGS), "Language settings unavailable");
+            }
+            @Override public void onMessage(String message) { showError(message); }
         }));
-        entries.add(new Entry("android settings", "All device controls", new Runnable() {
-            @Override public void run() { launchIntent(new Intent(Settings.ACTION_SETTINGS), "Settings unavailable"); }
-        }));
-        renderListPage("settings", "", entries);
+        root.addView(hardwarePage.getView(), new FrameLayout.LayoutParams(-1, -1));
+        root.addView(cardStatusHeader(true, 0xffff3400), new FrameLayout.LayoutParams(-1, Math.round(80 * screenScale())));
+        installPage(root, false); updateClock(); updateStatus();
+    }
+
+    /** Keep a settings child in this task so Android Back restores its native parent. */
+    private void launchSettingsChild(Intent intent, String message) {
+        try {
+            startActivity(intent);
+            returningFromApp = true;
+        } catch (RuntimeException unavailable) {
+            showError(message);
+        }
     }
 
     private void showGames() {
