@@ -59,16 +59,27 @@ def main():
 
         java_classes = temp / 'java'
         java_classes.mkdir()
+        # The Beats audio units must stay host-testable: no Android imports.
+        beats_sources = sorted((ROOT / 'app/src/com/kevtrinh/rabbitphone/beats').glob('*.java'))
+        for source in beats_sources:
+            if 'import android.' in source.read_text():
+                raise RuntimeError(source.name + ' imports Android; keep the beats package pure Java')
         run([java / 'javac', '-encoding', 'UTF-8', '-d', java_classes,
              ROOT / 'app/src/com/kevtrinh/rabbitphone/ButtonGestures.java',
              ROOT / 'tests/ButtonGesturesTest.java',
              ROOT / 'app/src/com/kevtrinh/rabbitphone/CardNavigation.java',
              ROOT / 'tests/CardNavigationTest.java',
              ROOT / 'app/src/com/kevtrinh/rabbitphone/TimerState.java',
-             ROOT / 'tests/TimerStateTest.java'])
+             ROOT / 'tests/TimerStateTest.java',
+             *beats_sources,
+             ROOT / 'tests/BeatsTest.java'])
         gesture = run([java / 'java', '-cp', java_classes, 'ButtonGesturesTest'], capture=True)
         navigation = run([java / 'java', '-cp', java_classes, 'CardNavigationTest'], capture=True)
         timer = run([java / 'java', '-cp', java_classes, 'TimerStateTest'], capture=True)
+        beats = run([java / 'java', '-cp', java_classes, 'com.kevtrinh.rabbitphone.beats.BeatsTest'], capture=True)
+        print(beats.stdout, end='')
+        if '16 beats cases passed' not in beats.stdout:
+            raise RuntimeError('Beats test receipt did not report all cases')
         print(timer.stdout, end='')
         if '15 timer state groups passed' not in timer.stdout:
             raise RuntimeError('TimerState test receipt did not report all cases')
@@ -80,7 +91,7 @@ def main():
             raise RuntimeError('CardNavigation test receipt did not report all cases')
 
     run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py', '-v'])
-    print('Checks passed: NDK helper, native sanitizers, gestures, card navigation, font/theme recovery tests.')
+    print('Checks passed: NDK helper, native sanitizers, gestures, card navigation, beats, font/theme recovery tests.')
 
 
 if __name__ == '__main__':

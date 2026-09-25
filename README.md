@@ -45,6 +45,13 @@ for the owner's device.
   note; the saved screen offers playback and the note library. Focus loss cancels
   an unfinished take, and the 60-second limit saves it automatically. The app has
   no Internet permission.
+- The **beats** card catches short sounds and plays them in a beat. On that page,
+  holding the side button records from the moment it's pressed, silences the beat,
+  and on release trims and loudness-matches the catch before playing it over a
+  synthesized thump. A click plays or stops, with no multi-press actions there. A
+  touch pad catches too. Each catch is sorted (boom, snap, tick, tune or voice), voices are chopped into syllables and snapped to the grid, and missing drums are cut from your words. The wheel browses numbered beats; tempo and volume chips follow it too. Catches are kept in
+  the app's external files folder; `scripts/pull_beats.py` backs them up outside Git.
+  See [the Beats design](docs/beats.md) for the plan and what's built so far.
 - The timer is native: choose a preset or custom duration, then use its live card
   to pause, resume, restart or cancel. The countdown persists across app restarts
   and device reboot. Android delivers the completion alert using the existing
@@ -77,6 +84,10 @@ for the owner's device.
 | Swipe upward on Home | Open the card stack | — |
 | Swipe down from top edge | Quick settings | Quick settings |
 | Swipe up from bottom edge | Return Home | Return Home |
+
+The **beats** page claims the side button while it's open: a hold catches a sound
+instead of opening the recorder, a click plays or stops right away, and double,
+five- and eight-press actions don't apply. Leave the page to use them again.
 
 The recorder and camera stay inside the Home window, so holding the
 button keeps its input connection until release. In the recorder, the wheel

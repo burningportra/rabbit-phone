@@ -23,7 +23,7 @@ public final class NavigationCard {
         }
     }
     public enum Glyph {
-        CAMERA, GALLERY, TIMER, TRANSLATE, RECORDER, RCADE, REMINDERS, ALARM,
+        CAMERA, GALLERY, TIMER, TRANSLATE, RECORDER, BEATS, RCADE, REMINDERS, ALARM,
         INTERN, MUSIC, CREATIONS, SETTINGS, APPS, PHONE, MESSAGES
     }
 

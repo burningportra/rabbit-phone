@@ -1014,6 +1014,12 @@ public final class CardDeckView extends View {
                 canvas.translate(16, 16);
                 for (int i = 0; i < 3; i++) { canvas.drawLine(0, -5, 0, -10, paint); canvas.rotate(120); }
                 break;
+            case BEATS:
+                // Four drum-machine pads; the lit one is hollow.
+                canvas.drawRoundRect(3, 3, 15, 15, 3, 3, paint); canvas.drawRoundRect(17, 3, 29, 15, 3, 3, paint);
+                canvas.drawRoundRect(3, 17, 15, 29, 3, 3, paint); canvas.drawRoundRect(17, 17, 29, 29, 3, 3, paint);
+                fill(paper); canvas.drawRoundRect(20, 20, 26, 26, 1.5f, 1.5f, paint);
+                break;
             case RCADE:
                 canvas.drawCircle(16, 6, 5, paint); canvas.drawRect(14, 11, 18, 22, paint);
                 canvas.drawRect(3, 20, 29, 29, paint);

@@ -64,7 +64,8 @@ public final class HomeActivity extends Activity {
     private static final int DARK_INK = Color.rgb(22, 18, 14);
     private static final int CARD = Color.rgb(27, 27, 24);
 
-    private enum Page { HOME, DECK, APPS, UTILITIES, SETTINGS, KEYBOARD, FEATURE, CAMERA, TIMER_SETUP, TRANSLATOR, GALLERY, IDLE }
+    private enum Page { HOME, DECK, APPS, UTILITIES, SETTINGS, KEYBOARD, FEATURE, CAMERA, TIMER_SETUP, TRANSLATOR, GALLERY, BEATS, IDLE }
+    private static final int BEATS_MIC_PERMISSION_REQUEST = 41;
 
     private static final class Entry {
         final String id;
@@ -100,6 +101,8 @@ public final class HomeActivity extends Activity {
     private boolean cameraReturnHome;
     private TimerStore timerStore;
     private HardwarePage hardwarePage;
+    /** The page that received the current press's down edge; its up edge goes there too. */
+    private HardwarePage buttonPage;
     private CardTransition cardTransition;
     private String activeFeatureId;
     private String pendingReturnCard;
@@ -256,6 +259,7 @@ public final class HomeActivity extends Activity {
         controlsHandler.removeCallbacks(timerTick);
         if (cameraScreen != null) cameraScreen.onPause();
         if (hardware != null) hardware.stop();
+        cancelButtonPage();
         if (gestures != null) gestures.cancel();
         if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
         if (quickSettings != null) quickSettings.dismiss();
@@ -287,6 +291,7 @@ public final class HomeActivity extends Activity {
         else {
             controlsHandler.removeCallbacks(timerTick);
             if (hardware != null) hardware.stop();
+            cancelButtonPage();
             if (gestures != null) gestures.cancel();
             if (recorderOverlay != null) recorderOverlay.abortAndDismiss();
             if (quickSettings != null) quickSettings.dismiss();
@@ -379,12 +384,32 @@ public final class HomeActivity extends Activity {
         hardware = new HardwareButtonClient(this, new HardwareButtonClient.Listener() {
             @Override public void onReady() {
                 hardware.send(HardwareButtonClient.Command.MOTOR_PRIVACY);
+                if (hardwarePage instanceof BeatsPage) ((BeatsPage) hardwarePage).setButtonReady(true);
                 android.util.Log.i("RabbitPhoneHardware", "Home controls ready");
             }
-            @Override public void onDown(long time) { cancelCardTransition(true); gestures.down(time); }
-            @Override public void onUp(long time) { gestures.up(time); }
+            @Override public void onDown(long time) {
+                cancelCardTransition(true);
+                if (hardwarePage != null && hardwarePage.ownsButton()
+                        && !quickSettings.isVisible() && !recorderOverlay.isVisible()) {
+                    buttonPage = hardwarePage;
+                    buttonPage.buttonDown(time);
+                    return;
+                }
+                gestures.down(time);
+            }
+            @Override public void onUp(long time) {
+                if (buttonPage != null) {
+                    HardwarePage owner = buttonPage;
+                    buttonPage = null;
+                    owner.buttonUp(time);
+                    return;
+                }
+                gestures.up(time);
+            }
             @Override public void onDisconnected() {
                 cancelCardTransition(true);
+                cancelButtonPage();
+                if (hardwarePage instanceof BeatsPage) ((BeatsPage) hardwarePage).setButtonReady(false);
                 gestures.cancel(); recorderOverlay.abortAndDismiss();
                 quickSettings.dismiss();
                 android.util.Log.i("RabbitPhoneHardware", "Home controls released");
@@ -466,6 +491,10 @@ public final class HomeActivity extends Activity {
         addCard("recorder", "recorder", 0xffff163c, NavigationCard.Glyph.RECORDER,
                 new Runnable() {
                     @Override public void run() { visitFeature("recorder"); recorderOverlay.showLibrary(); updateSurfaceMode(); }
+                });
+        addCard("beats", "beats", BeatsPage.ACCENT, NavigationCard.Glyph.BEATS,
+                new Runnable() {
+                    @Override public void run() { visitFeature("beats"); showBeats(); }
                 });
         addCard("r-cade", "r-cade", 0xffff8d00, NavigationCard.Glyph.RCADE, new Runnable() {
             @Override public void run() { visitFeature("r-cade"); showGames(); }
@@ -610,7 +639,7 @@ public final class HomeActivity extends Activity {
         if (cardTransition != null && !cardTransition.isRevealing()) cancelCardTransition(false);
         controlsHandler.removeCallbacks(timerTick);
         if (page != Page.TIMER_SETUP && page != Page.TRANSLATOR && page != Page.GALLERY
-                && page != Page.SETTINGS) setHardwarePage(null);
+                && page != Page.SETTINGS && page != Page.BEATS) setHardwarePage(null);
         releaseCameraScreen();
         navigationSurface = new NavigationSurface(this); navigationSurface.setHome(home);
         navigationSurface.setListener(new NavigationSurface.Listener() {
@@ -746,8 +775,35 @@ public final class HomeActivity extends Activity {
 
     private void setHardwarePage(HardwarePage next) {
         HardwarePage previous = hardwarePage;
+        if (buttonPage == previous && previous != next) cancelButtonPage();
         hardwarePage = next;
         if (previous != null && previous != next) previous.release();
+    }
+
+    private void cancelButtonPage() {
+        HardwarePage owner = buttonPage;
+        buttonPage = null;
+        if (owner != null) owner.buttonCancel();
+    }
+
+    private void showBeats() {
+        activeFeatureId = "beats";
+        page = Page.BEATS;
+        homeVisual = null; cardDeck = null; scrollView = null;
+        visibleEntries.clear(); selectableViews.clear();
+        clockView = dateView = statusView = null;
+        FrameLayout root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
+        BeatsPage beats = new BeatsPage(this, new BeatsPage.Host() {
+            @Override public void requestMicPermission() {
+                requestPermissions(new String[] { android.Manifest.permission.RECORD_AUDIO },
+                        BEATS_MIC_PERMISSION_REQUEST);
+            }
+        });
+        beats.setButtonReady(hardware != null && hardware.isReady());
+        setHardwarePage(beats);
+        root.addView(beats, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(cardStatusHeader(true, BeatsPage.ACCENT), new FrameLayout.LayoutParams(-1, Math.round(80 * screenScale())));
+        installPage(root, false); updateClock(); updateStatus();
     }
 
     private void showGallery() {
